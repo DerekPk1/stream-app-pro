@@ -104,12 +104,17 @@ jobs:
             </application>
         </manifest>
         EOF
-
-    - name: Build with Gradle
+- name: Build with Gradle
       run: |
+        # Stiahneme a rozbalíme stabilný Gradle 8.1.0 priamo
+        wget https://services.gradle.org/distributions/gradle-8.1.0-bin.zip
+        unzip -q gradle-8.1.0-bin.zip
+        export PATH=$PWD/gradle-8.1.0/bin:$PATH
+        
+        # Vytvoríme wrapper a spustíme build
         gradle wrapper --gradle-version 8.1.0
         chmod +x gradlew
-        ./gradlew assembleDebug
+        gradle assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
