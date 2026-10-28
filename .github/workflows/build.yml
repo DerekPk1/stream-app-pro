@@ -107,11 +107,6 @@ jobs:
 
     - name: Build with Gradle
       run: |
-        wget https://services.gradle.org/distributions/gradle-8.1.0-bin.zip
-        unzip -q gradle-8.1.0-bin.zip
-        export PATH=$PWD/gradle-8.1.0/bin:$PATH
-        gradle wrapper --gradle-version 8.1.0
-        chmod +x gradlew
         gradle assembleDebug
 
     - name: Upload APK
