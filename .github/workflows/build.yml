@@ -26,7 +26,7 @@ jobs:
         # settings.gradle
         echo "include ':app'" > settings.gradle
         
-        # build.gradle (root)
+        # build.gradle (root) - aktualizované na AGP 8.3.0 pre kompatibilitu
         cat << 'EOF' > build.gradle
         buildscript {
             repositories {
@@ -34,8 +34,8 @@ jobs:
                 mavenCentral()
             }
             dependencies {
-                classpath "com.android.tools.build:gradle:8.1.0"
-                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0"
+                classpath "com.android.tools.build:gradle:8.3.0"
+                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22"
             }
         }
         allprojects {
@@ -73,7 +73,7 @@ jobs:
                 compose true
             }
             composeOptions {
-                kotlinCompilerExtensionVersion '1.5.1'
+                kotlinCompilerExtensionVersion '1.5.8'
             }
         }
         dependencies {
@@ -107,10 +107,14 @@ jobs:
 
     - name: Build with Gradle
       run: |
-        gradle assembleDebug
+        # Vygenerujeme wrapper na stabilnú verziu 8.7, ktorá funguje bez chýb
+        gradle wrapper --gradle-version 8.7
+        chmod +x gradlew
+        ./gradlew assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: StreamApp-Alpha
         path: app/build/outputs/apk/debug/app-debug.apk
+
