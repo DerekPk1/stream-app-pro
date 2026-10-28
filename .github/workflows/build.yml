@@ -26,7 +26,14 @@ jobs:
         # settings.gradle
         echo "include ':app'" > settings.gradle
         
-        # build.gradle (root) - aktualizované na AGP 8.3.0 pre kompatibilitu
+        # gradle.properties (DÔLEŽITÉ: Zapnutie AndroidX a Jetifier)
+        cat << 'EOF' > gradle.properties
+        android.useAndroidX=true
+        android.enableJetifier=true
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        EOF
+        
+        # build.gradle (root)
         cat << 'EOF' > build.gradle
         buildscript {
             repositories {
@@ -107,7 +114,6 @@ jobs:
 
     - name: Build with Gradle
       run: |
-        # Vygenerujeme wrapper na stabilnú verziu 8.7, ktorá funguje bez chýb
         gradle wrapper --gradle-version 8.7
         chmod +x gradlew
         ./gradlew assembleDebug
@@ -117,4 +123,3 @@ jobs:
       with:
         name: StreamApp-Alpha
         path: app/build/outputs/apk/debug/app-debug.apk
-
