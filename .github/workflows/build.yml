@@ -107,7 +107,7 @@ jobs:
 
     - name: Build with Gradle
       run: |
-        gradle wrapper
+        gradle wrapper --gradle-version 8.1.0
         chmod +x gradlew
         ./gradlew assembleDebug
 
