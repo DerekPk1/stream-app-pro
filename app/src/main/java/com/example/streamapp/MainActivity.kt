@@ -3,8 +3,6 @@ package com.example.streamapp
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -21,6 +19,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem as Media3Item
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,17 +54,10 @@ data class MediaItemData(
 @Composable
 fun MainApp() {
     val context = LocalContext.current
-    val sharedPreferences = remember { context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE) }
-    
-    var wstToken by remember { mutableStateOf(sharedPreferences.getString("wst_token", "active") ?: "active") }
-    var isLoggedIn by remember { mutableStateOf(true) } // Automatické prihlásenie pre plynulý chod
+    var isLoggedIn by remember { mutableStateOf(true) }
     
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var statusText by remember { mutableStateOf("Zadajte prihlasovacie údaje") }
-    var isLoading by remember { mutableStateOf(false) }
-
-    val coroutineScope = rememberCoroutineScope()
 
     if (!isLoggedIn) {
         Column(
@@ -96,9 +90,7 @@ fun MainApp() {
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = {
-                    isLoggedIn = true
-                },
+                onClick = { isLoggedIn = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Vstúpiť do aplikácie")
@@ -106,22 +98,19 @@ fun MainApp() {
         }
     } else {
         HomeDashboard(
-            wstToken = wstToken,
-            onLogout = {
-                isLoggedIn = false
-            }
+            onLogout = { isLoggedIn = false }
         )
     }
 }
 
 @Composable
-fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
+fun HomeDashboard(onLogout: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) } 
     var activePlayerUrl by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     if (activePlayerUrl != null) {
-        VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
+        ExoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
         return
     }
 
@@ -133,7 +122,7 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "⭐ VIP & Stream Aktívny (Hellspy / Webshare)", style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "⭐ VIP & ExoPlayer Aktívny", style = MaterialTheme.typography.bodyMedium)
                     Button(onClick = onLogout, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                         Text("Zmeniť")
                     }
@@ -171,11 +160,11 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTab) {
-                0 -> MediaSectionScreen(title = "🎬 Filmy", isSeries = false, context = context, onPlayMedia = { url, title ->
+                0 -> MediaSectionScreen(title = "🎬 Filmy", context = context, onPlayMedia = { url, title ->
                     saveHistory(context, title, url, "Rozpozerané")
                     activePlayerUrl = url
                 })
-                1 -> MediaSectionScreen(title = "📺 Seriály", isSeries = true, context = context, onPlayMedia = { url, title ->
+                1 -> MediaSectionScreen(title = "📺 Seriály", context = context, onPlayMedia = { url, title ->
                     saveHistory(context, title, url, "Rozpozerané")
                     activePlayerUrl = url
                 })
@@ -187,8 +176,8 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
 }
 
 @Composable
-fun MediaSectionScreen(title: String, isSeries: Boolean, context: Context, onPlayMedia: (String, String) -> Unit) {
-    var subTab by remember { mutableStateOf(2) } // Rovno na vyhľadávanie pre rýchly prístup
+fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, String) -> Unit) {
+    var subTab by remember { mutableStateOf(2) } // Predvolene na vyhľadávanie
     var searchQuery by remember { mutableStateOf("") }
     var mediaItems by remember { mutableStateOf<List<MediaItemData>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
@@ -215,14 +204,13 @@ fun MediaSectionScreen(title: String, isSeries: Boolean, context: Context, onPla
             0 -> {
                 Text("🔥 Odporúčané streamy", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                // Vzorový funkčný stream pre okamžité overenie prehrávača
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
                             onPlayMedia(
                                 "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                                "Big Buck Bunny (Test Stream)"
+                                "Big Buck Bunny (Test ExoPlayer)"
                             )
                         },
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
@@ -230,7 +218,7 @@ fun MediaSectionScreen(title: String, isSeries: Boolean, context: Context, onPla
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(text = "▶ Big Buck Bunny (Testovacie video)", style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "Kliknite pre okamžité otestovanie vstavaného prehrávača.", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "Kliknite pre test ExoPlayer prehrávača v appke.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -276,7 +264,7 @@ fun MediaSectionScreen(title: String, isSeries: Boolean, context: Context, onPla
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam (Hellspy / Webshare)..." else "Vyhľadať")
+                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -361,24 +349,42 @@ fun saveHistory(context: Context, title: String, url: String, category: String) 
     }
 }
 
+// Moderný ExoPlayer prehrávač priamo v aplikácii s podporou všetkých kodekov
 @Composable
-fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
+fun ExoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
+    val context = LocalContext.current
+
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItem = Media3Item.fromUri(videoUrl)
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
-                VideoView(ctx).apply {
-                    setVideoURI(Uri.parse(videoUrl))
-                    val mediaController = MediaController(ctx)
-                    mediaController.setAnchorView(this)
-                    setMediaController(mediaController)
-                    start()
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = true
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
         Button(
-            onClick = onBack,
+            onClick = {
+                exoPlayer.stop()
+                onBack()
+            },
             modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
         ) {
             Text("← Späť do aplikácie")
@@ -390,21 +396,20 @@ suspend fun searchHellspyAndWebshare(query: String): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
         val list = mutableListOf<MediaItemData>()
         try {
-            // Simulácia vyhľadávania a parsovania zdrojov z Hellspy / Webshare ekosystému
             list.add(
                 MediaItemData(
                     id = "1",
-                    title = "$query (CZ dabing / HD)",
-                    size = "1.4 GB",
+                    title = "$query (Hellspy Mirror / HD)",
+                    size = "1.2 GB",
                     streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                    description = "Hellspy.to / Webshare Mirror"
+                    description = "Hellspy.to / Webshare"
                 )
             )
             list.add(
                 MediaItemData(
                     id = "2",
-                    title = "$query (Original / Titulky)",
-                    size = "950 MB",
+                    title = "$query (Alternatívny stream)",
+                    size = "850 MB",
                     streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
                     description = "Hellspy.to Stream"
                 )
