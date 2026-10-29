@@ -5,21 +5,16 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -45,9 +40,7 @@ data class MediaItem(
     val id: String,
     val title: String,
     val year: String,
-    val posterUrl: String,
-    val csfdRating: String,
-    val imdbRating: String,
+    val rating: String,
     val description: String,
     val isSeries: Boolean = false,
     val episodes: List<Episode> = emptyList()
@@ -143,25 +136,25 @@ fun HomeDashboard(wstToken: String) {
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Movie, contentDescription = "Filmy") },
+                    icon = { Text("🎬") },
                     label = { Text("Filmy") },
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Tv, contentDescription = "Seriály") },
+                    icon = { Text("📺") },
                     label = { Text("Seriály") },
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.History, contentDescription = "Rozpozerané") },
+                    icon = { Text("⏳") },
                     label = { Text("Rozpozerané") },
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.CheckCircle, contentDescription = "Pozreté") },
+                    icon = { Text("✅") },
                     label = { Text("Pozreté") },
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 }
@@ -224,10 +217,8 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
                         id = "sample_ident_1",
                         title = if (isSeries) "Stranger Things (Seriál)" else "Oppenheimer (Film)",
                         year = "2023",
-                        posterUrl = "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
-                        csfdRating = "90%",
-                        imdbRating = "8.7",
-                        description = "Skvelý titul pripravený na prehrávanie.",
+                        rating = "ČSFD: 90% | IMDb: 8.7",
+                        description = "Pripravené na okamžité prehrávanie.",
                         isSeries = isSeries,
                         episodes = if (isSeries) listOf(
                             Episode(1, "S01E01 - Kapitola prvá", "ident_ep_1"),
@@ -282,10 +273,9 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
 fun SeriesDetailScreen(series: MediaItem, onBack: () -> Unit, onPlayEpisode: (String) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Späť")
-            }
-            Text(text = series.title, style = MaterialTheme.typography.titleLarge)
+            Button(onClick = onBack) { Text("← Späť") }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = series.title, style = MaterialTheme.typography.titleMedium)
         }
         Spacer(modifier = Modifier.height(16.dp))
         Text(text = "📺 Zoznam epizód:", style = MaterialTheme.typography.titleMedium)
@@ -306,7 +296,7 @@ fun SeriesDetailScreen(series: MediaItem, onBack: () -> Unit, onPlayEpisode: (St
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(text = "${episode.number}. ${episode.title}", style = MaterialTheme.typography.bodyLarge)
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Prehrať")
+                        Text("▶ Prehrať")
                     }
                 }
             }
@@ -325,25 +315,12 @@ fun MediaList(items: List<MediaItem>, onClickItem: (MediaItem) -> Unit) {
                     .clickable { onClickItem(item) },
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
-                Row(modifier = Modifier.padding(8.dp)) {
-                    Image(
-                        painter = rememberAsyncImagePainter(model = item.posterUrl),
-                        contentDescription = "Plagát",
-                        modifier = Modifier.width(80.dp).height(120.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(text = "${item.title} (${item.year})", style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row {
-                            Badge(containerColor = MaterialTheme.colorScheme.primary) { Text("ČSFD: ${item.csfdRating}") }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Badge(containerColor = MaterialTheme.colorScheme.secondary) { Text("IMDb: ${item.imdbRating}") }
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(text = item.description, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                    }
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = "${item.title} (${item.year})", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = item.rating, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(text = item.description, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -380,7 +357,7 @@ fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(text = "▶ Prehrávam video zo servera...", style = MaterialTheme.typography.headlineMedium)
+        Text(text = "▶ Spúšťam prehrávač videa...", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = onBack) {
             Text("Späť do aplikácie")
@@ -459,10 +436,8 @@ suspend fun searchWebshareWithDetails(token: String, query: String, isSeries: Bo
                         id = "sample_ident_search",
                         title = query.replaceFirstChar { it.uppercase() },
                         year = "2024",
-                        posterUrl = "https://image.tmdb.org/t/p/w500/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg",
-                        csfdRating = "80%",
-                        imdbRating = "7.8",
-                        description = "Výsledok pre: $query",
+                        rating = "ČSFD: 78% | IMDb: 7.2",
+                        description = "Nájdený súbor pre dopyt: $query",
                         isSeries = isSeries,
                         episodes = if (isSeries) listOf(
                             Episode(1, "1. Epizóda", "ident_e1"),
