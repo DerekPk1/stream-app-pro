@@ -5,8 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,7 +35,6 @@ fun MainApp() {
     var statusText by remember { mutableStateOf("Zadajte prihlasovacie údaje") }
 
     if (!isLoggedIn) {
-        // Prihlasovacia obrazovka
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -74,7 +73,6 @@ fun MainApp() {
             Text(text = statusText, color = MaterialTheme.colorScheme.secondary)
         }
     } else {
-        // Hlavná aplikácia so záložkami po úspešnom prihlásení
         HomeDashboard(onLogout = { isLoggedIn = false })
     }
 }
@@ -87,13 +85,13 @@ fun HomeDashboard(onLogout: () -> Unit) {
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Movie, contentDescription = "Filmy") },
+                    icon = { Icon(Icons.Default.Home, contentDescription = "Filmy") },
                     label = { Text("Filmy") },
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Tv, contentDescription = "Seriály") },
+                    icon = { Icon(Icons.Default.List, contentDescription = "Seriály") },
                     label = { Text("Seriály") },
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 }
@@ -173,3 +171,5 @@ fun SeriesScreen() {
         Text(text = searchResult)
     }
 }
+
+   
