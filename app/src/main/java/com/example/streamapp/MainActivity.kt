@@ -3,6 +3,8 @@ package com.example.streamapp
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -19,9 +21,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem as Media3Item
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,9 +52,7 @@ data class MediaItemData(
 
 @Composable
 fun MainApp() {
-    val context = LocalContext.current
     var isLoggedIn by remember { mutableStateOf(true) }
-    
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
@@ -69,7 +66,7 @@ fun MainApp() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(text = "Stream App - Hellspy & Webshare", style = MaterialTheme.typography.headlineMedium)
+            Text(text = "Stream App - Webshare & Hellspy", style = MaterialTheme.typography.headlineMedium)
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
@@ -110,7 +107,7 @@ fun HomeDashboard(onLogout: () -> Unit) {
     val context = LocalContext.current
 
     if (activePlayerUrl != null) {
-        ExoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
+        VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
         return
     }
 
@@ -122,7 +119,7 @@ fun HomeDashboard(onLogout: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "⭐ VIP & ExoPlayer Aktívny", style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "⭐ VIP & Stabilný Prehrávač Aktívny", style = MaterialTheme.typography.bodyMedium)
                     Button(onClick = onLogout, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                         Text("Zmeniť")
                     }
@@ -177,7 +174,7 @@ fun HomeDashboard(onLogout: () -> Unit) {
 
 @Composable
 fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, String) -> Unit) {
-    var subTab by remember { mutableStateOf(2) } // Predvolene na vyhľadávanie
+    var subTab by remember { mutableStateOf(2) }
     var searchQuery by remember { mutableStateOf("") }
     var mediaItems by remember { mutableStateOf<List<MediaItemData>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
@@ -210,7 +207,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                         .clickable {
                             onPlayMedia(
                                 "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                                "Big Buck Bunny (Test ExoPlayer)"
+                                "Big Buck Bunny (Test Stream)"
                             )
                         },
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
@@ -218,7 +215,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(text = "▶ Big Buck Bunny (Testovacie video)", style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "Kliknite pre test ExoPlayer prehrávača v appke.", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "Kliknite pre okamžité overenie prehrávania v appke.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -236,7 +233,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                     subTab = 2
                                     isSearching = true
                                     coroutineScope.launch {
-                                        mediaItems = searchHellspyAndWebshare(genre)
+                                        mediaItems = searchMediaSources(genre)
                                         isSearching = false
                                     }
                                 },
@@ -259,7 +256,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                     if (searchQuery.isNotEmpty()) {
                         isSearching = true
                         coroutineScope.launch {
-                            mediaItems = searchHellspyAndWebshare(searchQuery)
+                            mediaItems = searchMediaSources(searchQuery)
                             isSearching = false
                         }
                     }
@@ -349,42 +346,24 @@ fun saveHistory(context: Context, title: String, url: String, category: String) 
     }
 }
 
-// Moderný ExoPlayer prehrávač priamo v aplikácii s podporou všetkých kodekov
 @Composable
-fun ExoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
-    val context = LocalContext.current
-
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItem = Media3Item.fromUri(videoUrl)
-            setMediaItem(mediaItem)
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
-    }
-
+fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = true
+                VideoView(ctx).apply {
+                    setVideoURI(Uri.parse(videoUrl))
+                    val mediaController = MediaController(ctx)
+                    mediaController.setAnchorView(this)
+                    setMediaController(mediaController)
+                    start()
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
         Button(
-            onClick = {
-                exoPlayer.stop()
-                onBack()
-            },
+            onClick = onBack,
             modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
         ) {
             Text("← Späť do aplikácie")
@@ -392,26 +371,26 @@ fun ExoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
     }
 }
 
-suspend fun searchHellspyAndWebshare(query: String): List<MediaItemData> {
+suspend fun searchMediaSources(query: String): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
         val list = mutableListOf<MediaItemData>()
         try {
             list.add(
                 MediaItemData(
                     id = "1",
-                    title = "$query (Hellspy Mirror / HD)",
-                    size = "1.2 GB",
+                    title = "$query (Webshare / Hellspy HD Mirror)",
+                    size = "1.4 GB",
                     streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                    description = "Hellspy.to / Webshare"
+                    description = "Webshare & Hellspy Source"
                 )
             )
             list.add(
                 MediaItemData(
                     id = "2",
                     title = "$query (Alternatívny stream)",
-                    size = "850 MB",
+                    size = "950 MB",
                     streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-                    description = "Hellspy.to Stream"
+                    description = "Hellspy Stream"
                 )
             )
         } catch (e: Exception) {
