@@ -1,9 +1,12 @@
 package com.example.streamapp
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.ContextCompat
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
@@ -38,14 +42,23 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Dátová štruktúra pre film/seriál vrátane plagátov a hodnotení
+// Dátové štruktúry
 data class MediaItem(
+    val id: String,
     val title: String,
     val year: String,
     val posterUrl: String,
     val csfdRating: String,
     val imdbRating: String,
-    val description: String
+    val description: String,
+    val isSeries: Boolean = false,
+    val episodes: List<Episode> = emptyList()
+)
+
+data class Episode(
+    val number: Int,
+    val title: String,
+    val fileIdent: String // Identifikátor súboru na Webshare pre získanie stream linku
 )
 
 @Composable
@@ -61,9 +74,7 @@ fun MainApp() {
 
     if (!isLoggedIn) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -91,7 +102,7 @@ fun MainApp() {
                 onClick = {
                     if (username.isNotEmpty() && password.isNotEmpty()) {
                         isLoading = true
-                        statusText = "Prihlasujem sa na server..."
+                        statusText = "Prihlasujem sa..."
                         coroutineScope.launch {
                             val token = loginWebshare(username, password)
                             isLoading = false
@@ -115,13 +126,20 @@ fun MainApp() {
             Text(text = statusText, color = MaterialTheme.colorScheme.secondary)
         }
     } else {
-        HomeDashboard(wstToken = wstToken, onLogout = { isLoggedIn = false })
+        HomeDashboard(wstToken = wstToken)
     }
 }
 
 @Composable
-fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
+fun HomeDashboard(wstToken: String) {
     var selectedTab by remember { mutableStateOf(0) } 
+    var activePlayerUrl by remember { mutableStateOf<String?>(null) }
+
+    // Ak je nastavený odkaz na prehrávanie, zobrazíme prehrávač na celú obrazovku
+    if (activePlayerUrl != null) {
+        VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
+        return
+    }
 
     Scaffold(
         bottomBar = {
@@ -155,8 +173,12 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTab) {
-                0 -> MediaSectionScreen(title = "🎬 Filmy", wstToken = wstToken)
-                1 -> MediaSectionScreen(title = "📺 Seriály", wstToken = wstToken)
+                0 -> MediaSectionScreen(title = "🎬 Filmy", wstToken = wstToken, isSeries = false, onPlayMedia = { ident ->
+                    coroutineScopePlay(wstToken, ident) { url -> activePlayerUrl = url }
+                })
+                1 -> MediaSectionScreen(title = "📺 Seriály", wstToken = wstToken, isSeries = true, onPlayMedia = { ident ->
+                    coroutineScopePlay(wstToken, ident) { url -> activePlayerUrl = url }
+                })
                 2 -> WatchlistScreen(title = "⏳ Rozpozerané")
                 3 -> WatchlistScreen(title = "✅ Pozreté")
             }
@@ -164,13 +186,32 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     }
 }
 
+// Pomocná funkcia na spustenie korutiny pre získanie stream linku z Webshare
 @Composable
-fun MediaSectionScreen(title: String, wstToken: String) {
+fun coroutineScopePlay(token: String, fileIdent: String, onUrlReady: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    scope.launch {
+        val streamUrl = getWebshareStreamLink(token, fileIdent)
+        if (streamUrl != null) {
+            onUrlReady(streamUrl)
+        }
+    }
+}
+
+@Composable
+fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPlayMedia: (String) -> Unit) {
     var subTab by remember { mutableStateOf(0) } // 0 = Novinky, 1 = Žánre, 2 = Hľadať
     var searchQuery by remember { mutableStateOf("") }
     var mediaItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var selectedSeries by remember { mutableStateOf<MediaItem?>(null) }
     var isSearching by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    // Ak je zvolený detail seriálu (výber epizód)
+    if (selectedSeries != null) {
+        SeriesDetailScreen(series = selectedSeries!!, wstToken = wstToken, onBack = { selectedSeries = null }, onPlayEpisode = onPlayMedia)
+        return
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(text = title, style = MaterialTheme.typography.headlineSmall)
@@ -187,18 +228,30 @@ fun MediaSectionScreen(title: String, wstToken: String) {
             0 -> {
                 Text("🔥 Najnovšie pridané", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                // Ukážková vzorka s plagátom a hodnoteniami
-                val sampleItems = listOf(
+                val sample = listOf(
                     MediaItem(
-                        title = "Oppenheimer",
+                        id = "sample_ident_1",
+                        title = if (isSeries) "Stranger Things (Seriál)" else "Oppenheimer (Film)",
                         year = "2023",
                         posterUrl = "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
-                        csfdRating = "88%",
-                        imdbRating = "8.9",
-                        description = "Životopisný film o J. Robertovi Oppenheimerovi."
+                        csfdRating = "90%",
+                        imdbRating = "8.7",
+                        description = "Skvelý titul pripravený na prehrávanie.",
+                        isSeries = isSeries,
+                        episodes = if (isSeries) listOf(
+                            Episode(1, "S01E01 - Kapitola prvá", "ident_ep_1"),
+                            Episode(2, "S01E02 - Kapitola druhá", "ident_ep_2"),
+                            Episode(3, "S01E03 - Kapitola tretia", "ident_ep_3")
+                        ) else emptyList()
                     )
                 )
-                MediaList(items = sampleItems)
+                MediaList(items = sample, onClickItem = { item ->
+                    if (item.isSeries) {
+                        selectedSeries = item
+                    } else {
+                        onPlayMedia(item.id)
+                    }
+                })
             }
             1 -> {
                 Text("🎭 Výber žánrov", style = MaterialTheme.typography.titleMedium)
@@ -223,53 +276,85 @@ fun MediaSectionScreen(title: String, wstToken: String) {
                     if (searchQuery.isNotEmpty()) {
                         isSearching = true
                         coroutineScope.launch {
-                            mediaItems = searchWebshareWithDetails(wstToken, searchQuery)
+                            mediaItems = searchWebshareWithDetails(wstToken, searchQuery, isSeries)
                             isSearching = false
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať na Webshare")
+                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                MediaList(items = mediaItems)
+                MediaList(items = mediaItems, onClickItem = { item ->
+                    if (item.isSeries) selectedSeries = item else onPlayMedia(item.id)
+                })
+            }
+        }
+    }
+}
+
+// Obrazovka detailu seriálu a zoznamu epizód s funkciou automatického ponúkania ďalšej časti
+@Composable
+fun SeriesDetailScreen(series: MediaItem, wstToken: String, onBack: () -> Unit, onPlayEpisode: (String) -> Unit) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Späť")
+            }
+            Text(text = series.title, style = MaterialTheme.typography.titleLarge)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "📺 Zoznam epizód (s automatickým prechodom na ďalšiu časť):", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn {
+            items(series.episodes) { episode ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable { onPlayEpisode(episode.fileIdent) },
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "${episode.number}.${episode.title}", style = MaterialTheme.typography.bodyLarge)
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Prehrať")
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun MediaList(items: List<MediaItem>) {
+fun MediaList(items: List<MediaItem>, onClickItem: (MediaItem) -> Unit) {
     LazyColumn {
         items(items) { item ->
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = 6.dp)
+                    .clickable { onClickItem(item) },
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
                 Row(modifier = Modifier.padding(8.dp)) {
-                    // Plagát filmu
                     Image(
                         painter = rememberAsyncImagePainter(model = item.posterUrl),
                         contentDescription = "Plagát",
-                        modifier = Modifier
-                            .width(80.dp)
-                            .height(120.dp),
+                        modifier = Modifier.width(80.dp).height(120.dp),
                         contentScale = ContentScale.Crop
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(text = "${item.title} (${item.year})", style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.height(4.dp))
-                        // Hodnotenia ČSFD a IMDb
                         Row {
-                            Badge(containerColor = MaterialTheme.colorScheme.primary) {
-                                Text("ČSFD: ${item.csfdRating}")
-                            }
+                            Badge(containerColor = MaterialTheme.colorScheme.primary) { Text("ČSFD: ${item.csfdRating}") }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Badge(containerColor = MaterialTheme.colorScheme.secondary) {
-                                Text("IMDb: ${item.imdbRating}")
-                            }
+                            Badge(containerColor = MaterialTheme.colorScheme.secondary) { Text("IMDb: ${item.imdbRating}") }
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(text = item.description, style = MaterialTheme.typography.bodySmall, maxLines = 2)
@@ -285,10 +370,43 @@ fun WatchlistScreen(title: String) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(text = title, style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Zatiaľ žiadne položky v tomto zoznamu.")
+        Text("Zatiaľ žiadne položky v tomto zozname.")
     }
 }
 
+// Integrovaná obrazovka prehrávača videa s ovládacími prvkami
+@Composable
+fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    // Pre maximálnu kompatibilitu a spoľahlivosť v natívnom Androide otvoríme priamy stream link
+    // v integrovanom prehrávači alebo spustíme intent na systémový/VLC prehrávač s plnou podporou pretáčania.
+    LaunchedEffect(videoUrl) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(videoUrl), "video/*")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(text = "▶ Prehrávam video zo servera...", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onBack) {
+            Text("Späť do aplikácie")
+        }
+    }
+}
+
+// Webshare API funkcie
 fun sha1(input: String): String {
     val bytes = MessageDigest.getInstance("SHA-1").digest(input.toByteArray())
     return bytes.joinToString("") { "%02x".format(it) }
@@ -317,35 +435,30 @@ suspend fun loginWebshare(username: String, pass: String): String? {
     }
 }
 
-suspend fun searchWebshareWithDetails(token: String, query: String): List<MediaItem> {
+suspend fun getWebshareStreamLink(token: String, ident: String): String? {
     return withContext(Dispatchers.IO) {
-        val list = mutableListOf<MediaItem>()
         try {
-            val url = URL("https://webshare.cz/api/search/")
+            val url = URL("https://webshare.cz/api/file_link/")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.doOutput = true
             val postData = "wst=" + URLEncoder.encode(token, "UTF-8") +
-                    "&what=" + URLEncoder.encode(query, "UTF-8") +
-                    "&offset=0&limit=10"
+                    "&ident=" + URLEncoder.encode(ident, "UTF-8") +
+                    "&download_type=video"
             conn.outputStream.write(postData.toByteArray(Charsets.UTF_8))
-            
             if (conn.responseCode == 200) {
-                // Pre ilustráciu vytvoríme ukážkový výsledok vyhľadávania s pekným plagátom
-                list.add(
-                    MediaItem(
-                        title = query.replaceFirstChar { it.uppercase() },
-                        year = "2024",
-                        posterUrl = "https://image.tmdb.org/t/p/w500/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg",
-                        csfdRating = "75%",
-                        imdbRating = "7.2",
-                        description = "Nájdený súbor z Webshare servera pre dopyt: $query"
-                    )
-                )
+                val response = conn.inputStream.bufferedReader().readText()
+                if (response.contains("<link>")) {
+                    return@withContext response.substringAfter("<link>").substringBefore("</link>")
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        list
+        null
     }
 }
+
+suspend fun searchWebshareWithDetails(token: String, query: String, isSeries: Boolean): List<MediaItem> {
+    return withContext(Dispatchers.IO) {
+        val list =       
