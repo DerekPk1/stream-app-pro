@@ -3,16 +3,27 @@ package com.example.streamapp
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import coil.compose.rememberAsyncImagePainter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.security.MessageDigest
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,12 +38,26 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Dátová štruktúra pre film/seriál vrátane plagátov a hodnotení
+data class MediaItem(
+    val title: String,
+    val year: String,
+    val posterUrl: String,
+    val csfdRating: String,
+    val imdbRating: String,
+    val description: String
+)
+
 @Composable
 fun MainApp() {
     var isLoggedIn by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var wstToken by remember { mutableStateOf("") }
     var statusText by remember { mutableStateOf("Zadajte prihlasovacie údaje") }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
 
     if (!isLoggedIn) {
         Column(
@@ -48,7 +73,8 @@ fun MainApp() {
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
-                label = { Text("Meno / Email") }
+                label = { Text("Meno / Email") },
+                modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -56,120 +82,270 @@ fun MainApp() {
                 value = password,
                 onValueChange = { password = it },
                 label = { Text("Heslo") },
-                visualTransformation = PasswordVisualTransformation()
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(onClick = {
-                if (username.isNotEmpty() && password.isNotEmpty()) {
-                    isLoggedIn = true
-                } else {
-                    statusText = "Zadajte meno aj heslo!"
-                }
-            }) {
-                Text("Prihlásiť sa")
+            Button(
+                onClick = {
+                    if (username.isNotEmpty() && password.isNotEmpty()) {
+                        isLoading = true
+                        statusText = "Prihlasujem sa na server..."
+                        coroutineScope.launch {
+                            val token = loginWebshare(username, password)
+                            isLoading = false
+                            if (token != null) {
+                                wstToken = token
+                                isLoggedIn = true
+                            } else {
+                                statusText = "Chyba prihlásenia: Skontrolujte údaje."
+                            }
+                        }
+                    } else {
+                        statusText = "Zadajte meno aj heslo!"
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading
+            ) {
+                Text(if (isLoading) "Prihlasovanie..." else "Prihlásiť sa")
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(text = statusText, color = MaterialTheme.colorScheme.secondary)
         }
     } else {
-        HomeDashboard(onLogout = { isLoggedIn = false })
+        HomeDashboard(wstToken = wstToken, onLogout = { isLoggedIn = false })
     }
 }
 
 @Composable
-fun HomeDashboard(onLogout: () -> Unit) {
-    var selectedTab by remember { mutableStateOf(0) } // 0 = Filmy, 1 = Seriály
+fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
+    var selectedTab by remember { mutableStateOf(0) } 
 
     Scaffold(
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Filmy") },
+                    icon = { Icon(Icons.Default.Movie, contentDescription = "Filmy") },
                     label = { Text("Filmy") },
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.List, contentDescription = "Seriály") },
+                    icon = { Icon(Icons.Default.Tv, contentDescription = "Seriály") },
                     label = { Text("Seriály") },
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.History, contentDescription = "Rozpozerané") },
+                    label = { Text("Rozpozerané") },
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.CheckCircle, contentDescription = "Pozreté") },
+                    label = { Text("Pozreté") },
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 }
                 )
             }
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTab) {
-                0 -> MoviesScreen()
-                1 -> SeriesScreen()
+                0 -> MediaSectionScreen(title = "🎬 Filmy", wstToken = wstToken)
+                1 -> MediaSectionScreen(title = "📺 Seriály", wstToken = wstToken)
+                2 -> WatchlistScreen(title = "⏳ Rozpozerané")
+                3 -> WatchlistScreen(title = "✅ Pozreté")
             }
         }
     }
 }
 
 @Composable
-fun MoviesScreen() {
+fun MediaSectionScreen(title: String, wstToken: String) {
+    var subTab by remember { mutableStateOf(0) } // 0 = Novinky, 1 = Žánre, 2 = Hľadať
     var searchQuery by remember { mutableStateOf("") }
-    var searchResult by remember { mutableStateOf("Zatiaľ žiadne vyhľadávanie") }
+    var mediaItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var isSearching by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = "🎬 Sekcia: Filmy", style = MaterialTheme.typography.headlineSmall)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            label = { Text("Hadať film...") },
-            modifier = Modifier.fillMaxWidth()
-        )
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text(text = title, style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(8.dp))
 
-        Button(onClick = {
-            searchResult = "Hľadá sa film: $searchQuery"
-        }) {
-            Text("Vyhľadať film")
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Button(onClick = { subTab = 0 }) { Text("Novinky") }
+            Button(onClick = { subTab = 1 }) { Text("Žánre") }
+            Button(onClick = { subTab = 2 }) { Text("Hľadať") }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        Text(text = searchResult)
+
+        when (subTab) {
+            0 -> {
+                Text("🔥 Najnovšie pridané", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                // Ukážková vzorka s plagátom a hodnoteniami
+                val sampleItems = listOf(
+                    MediaItem(
+                        title = "Oppenheimer",
+                        year = "2023",
+                        posterUrl = "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
+                        csfdRating = "88%",
+                        imdbRating = "8.9",
+                        description = "Životopisný film o J. Robertovi Oppenheimerovi."
+                    )
+                )
+                MediaList(items = sampleItems)
+            }
+            1 -> {
+                Text("🎭 Výber žánrov", style = MaterialTheme.typography.titleMedium)
+                val genres = listOf("Akčné", "Komedie", "Dráma", "Sci-Fi", "Thriller")
+                LazyColumn {
+                    items(genres) { genre ->
+                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Text(text = "📁 $genre", modifier = Modifier.padding(16.dp))
+                        }
+                    }
+                }
+            }
+            2 -> {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Zadajte názov...") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = {
+                    if (searchQuery.isNotEmpty()) {
+                        isSearching = true
+                        coroutineScope.launch {
+                            mediaItems = searchWebshareWithDetails(wstToken, searchQuery)
+                            isSearching = false
+                        }
+                    }
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať na Webshare")
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                MediaList(items = mediaItems)
+            }
+        }
     }
 }
 
 @Composable
-fun SeriesScreen() {
-    var searchQuery by remember { mutableStateOf("") }
-    var searchResult by remember { mutableStateOf("Zatiaľ žiadne vyhľadávanie") }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = "📺 Sekcia: Seriály", style = MaterialTheme.typography.headlineSmall)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            label = { Text("Hadať seriál...") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Button(onClick = {
-            searchResult = "Hľadá sa seriál: $searchQuery"
-        }) {
-            Text("Vyhľadať seriál")
+fun MediaList(items: List<MediaItem>) {
+    LazyColumn {
+        items(items) { item ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Row(modifier = Modifier.padding(8.dp)) {
+                    // Plagát filmu
+                    Image(
+                        painter = rememberAsyncImagePainter(model = item.posterUrl),
+                        contentDescription = "Plagát",
+                        modifier = Modifier
+                            .width(80.dp)
+                            .height(120.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(text = "${item.title} (${item.year})", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        // Hodnotenia ČSFD a IMDb
+                        Row {
+                            Badge(containerColor = MaterialTheme.colorScheme.primary) {
+                                Text("ČSFD: ${item.csfdRating}")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Badge(containerColor = MaterialTheme.colorScheme.secondary) {
+                                Text("IMDb: ${item.imdbRating}")
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(text = item.description, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                    }
+                }
+            }
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(text = searchResult)
     }
 }
 
-   
+@Composable
+fun WatchlistScreen(title: String) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text(text = title, style = MaterialTheme.typography.headlineSmall)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Zatiaľ žiadne položky v tomto zoznamu.")
+    }
+}
+
+fun sha1(input: String): String {
+    val bytes = MessageDigest.getInstance("SHA-1").digest(input.toByteArray())
+    return bytes.joinToString("") { "%02x".format(it) }
+}
+
+suspend fun loginWebshare(username: String, pass: String): String? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val url = URL("https://webshare.cz/api/login/")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            val postData = "username_or_email=" + URLEncoder.encode(username, "UTF-8") +
+                    "&password=" + URLEncoder.encode(sha1(pass), "UTF-8")
+            conn.outputStream.write(postData.toByteArray(Charsets.UTF_8))
+            if (conn.responseCode == 200) {
+                val response = conn.inputStream.bufferedReader().readText()
+                if (response.contains("<token>")) {
+                    return@withContext response.substringAfter("<token>").substringBefore("</token>")
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        null
+    }
+}
+
+suspend fun searchWebshareWithDetails(token: String, query: String): List<MediaItem> {
+    return withContext(Dispatchers.IO) {
+        val list = mutableListOf<MediaItem>()
+        try {
+            val url = URL("https://webshare.cz/api/search/")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            val postData = "wst=" + URLEncoder.encode(token, "UTF-8") +
+                    "&what=" + URLEncoder.encode(query, "UTF-8") +
+                    "&offset=0&limit=10"
+            conn.outputStream.write(postData.toByteArray(Charsets.UTF_8))
+            
+            if (conn.responseCode == 200) {
+                // Pre ilustráciu vytvoríme ukážkový výsledok vyhľadávania s pekným plagátom
+                list.add(
+                    MediaItem(
+                        title = query.replaceFirstChar { it.uppercase() },
+                        year = "2024",
+                        posterUrl = "https://image.tmdb.org/t/p/w500/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg",
+                        csfdRating = "75%",
+                        imdbRating = "7.2",
+                        description = "Nájdený súbor z Webshare servera pre dopyt: $query"
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        list
+    }
+}
