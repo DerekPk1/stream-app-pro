@@ -3,8 +3,6 @@ package com.example.streamapp
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -19,6 +17,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem as Media3Item
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,8 +44,8 @@ class MainActivity : ComponentActivity() {
 data class MediaItemData(
     val id: String,
     val title: String,
-    val year: String,
-    val rating: String,
+    val size: String,
+    val ident: String,
     val description: String,
     val isSeries: Boolean = false,
     val episodes: List<Episode> = emptyList()
@@ -105,11 +106,13 @@ fun MainApp() {
                         coroutineScope.launch {
                             val token = loginWebshare(username, password)
                             isLoading = false
-                            val finalToken = token ?: "demo_token"
-                            
-                            sharedPreferences.edit().putString("wst_token", finalToken).apply()
-                            wstToken = finalToken
-                            isLoggedIn = true
+                            if (token != null) {
+                                sharedPreferences.edit().putString("wst_token", token).apply()
+                                wstToken = token
+                                isLoggedIn = true
+                            } else {
+                                statusText = "Chyba prihlásenia: Skontrolujte údaje."
+                            }
                         }
                     } else {
                         statusText = "Zadajte meno aj heslo!"
@@ -138,15 +141,36 @@ fun MainApp() {
 fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) } 
     var activePlayerUrl by remember { mutableStateOf<String?>(null) }
+    var vipStatus by remember { mutableStateOf("Overujem VIP...") }
     val coroutineScope = rememberCoroutineScope()
 
+    // Overenie VIP stavu pri štarte dashboardu
+    LaunchedEffect(wstToken) {
+        coroutineScope.launch {
+            vipStatus = checkVipStatus(wstToken)
+        }
+    }
+
     if (activePlayerUrl != null) {
-        // Prehrávanie priamo v aplikácii cez natívny VideoView s posuvníkom na pretáčanie
-        VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
+        ExoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
         return
     }
 
     Scaffold(
+        topBar = {
+            Surface(tonalElevation = 3.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "⭐ $vipStatus", style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = onLogout, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                        Text("Odhlásiť")
+                    }
+                }
+            }
+        },
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
@@ -181,13 +205,13 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
                 0 -> MediaSectionScreen(title = "🎬 Filmy", wstToken = wstToken, isSeries = false, onPlayMedia = { ident ->
                     coroutineScope.launch {
                         val url = getWebshareStreamLink(wstToken, ident)
-                        activePlayerUrl = url ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                        if (url != null) activePlayerUrl = url
                     }
                 })
                 1 -> MediaSectionScreen(title = "📺 Seriály", wstToken = wstToken, isSeries = true, onPlayMedia = { ident ->
                     coroutineScope.launch {
                         val url = getWebshareStreamLink(wstToken, ident)
-                        activePlayerUrl = url ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                        if (url != null) activePlayerUrl = url
                     }
                 })
                 2 -> WatchlistScreen(title = "⏳ Rozpozerané")
@@ -224,29 +248,13 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
 
         when (subTab) {
             0 -> {
-                Text("🔥 Najnovšie pridané", style = MaterialTheme.typography.titleMedium)
+                Text("🔥 Odporúčané / Najnovšie", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                val sample = listOf(
-                    MediaItemData(
-                        id = "sample_ident_1",
-                        title = if (isSeries) "Stranger Things (Seriál)" else "Oppenheimer (Film)",
-                        year = "2023",
-                        rating = "ČSFD: 90% | IMDb: 8.7",
-                        description = "Pripravené na okamžité prehrávanie.",
-                        isSeries = isSeries,
-                        episodes = if (isSeries) listOf(
-                            Episode(1, "S01E01 - Kapitola prvá", "ident_ep_1"),
-                            Episode(2, "S01E02 - Kapitola druhá", "ident_ep_2")
-                        ) else emptyList()
-                    )
-                )
-                MediaList(items = sample, onClickItem = { item ->
-                    if (item.isSeries) selectedSeries = item else onPlayMedia(item.id)
-                })
+                Text("Zadajte názov v záložke 'Hľadať' pre vyhľadanie obsahu zo služby Webshare.")
             }
             1 -> {
                 Text("🎭 Výber žánrov", style = MaterialTheme.typography.titleMedium)
-                val genres = listOf("Akčné", "Komedie", "Dráma", "Sci-Fi", "Thriller")
+                val genres = listOf("Akčné", "Komédie", "Dráma", "Sci-Fi", "Thriller")
                 LazyColumn {
                     items(genres) { genre ->
                         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -259,7 +267,7 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Zadajte názov...") },
+                    label = { Text("Zadajte názov filmu/seriálu...") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -267,16 +275,23 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
                     if (searchQuery.isNotEmpty()) {
                         isSearching = true
                         coroutineScope.launch {
-                            mediaItems = searchWebshareWithDetails(wstToken, searchQuery, isSeries)
+                            mediaItems = searchWebshareReal(wstToken, searchQuery)
                             isSearching = false
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať")
+                    Text(if (isSearching) "Vyhľadávam na Webshare..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 MediaList(items = mediaItems, onClickItem = { item ->
-                    if (item.isSeries) selectedSeries = item else onPlayMedia(item.id)
+                    if (isSeries) {
+                        // Pre seriály vytvoríme vzorové epizódne položky na základe nájdeného súboru
+                        selectedSeries = item.copy(isSeries = true, episodes = listOf(
+                            Episode(1, item.title, item.ident)
+                        ))
+                    } else {
+                        onPlayMedia(item.ident)
+                    }
                 })
             }
         }
@@ -330,9 +345,9 @@ fun MediaList(items: List<MediaItemData>, onClickItem: (MediaItemData) -> Unit) 
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "${item.title} (${item.year})", style = MaterialTheme.typography.titleMedium)
+                    Text(text = item.title, style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = item.rating, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(text = "Veľkosť: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(text = item.description, style = MaterialTheme.typography.bodySmall)
                 }
@@ -350,30 +365,43 @@ fun WatchlistScreen(title: String) {
     }
 }
 
-// Integrovaný prehrávač videa priamo v aplikácii cez Android VideoView + ovládací panel na pretáčanie
+// Integrovaný ExoPlayer pre plynulé prehrávanie všetkých formátov (MKV, MP4) priamo v aplikácii
 @Composable
-fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
+fun ExoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
     val context = LocalContext.current
+
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItem = Media3Item.fromUri(videoUrl)
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
-                VideoView(ctx).apply {
-                    setVideoURI(Uri.parse(videoUrl))
-                    val mediaController = MediaController(ctx)
-                    mediaController.setAnchorView(this)
-                    setMediaController(mediaController)
-                    start()
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = true
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
         Button(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(16.dp)
-                .align(Alignment.TopStart)
+            onClick = {
+                exoPlayer.stop()
+                onBack()
+            },
+            modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
         ) {
             Text("← Späť do aplikácie")
         }
@@ -408,6 +436,30 @@ suspend fun loginWebshare(username: String, pass: String): String? {
     }
 }
 
+suspend fun checkVipStatus(token: String): String {
+    return withContext(Dispatchers.IO) {
+        try {
+            val url = URL("https://webshare.cz/api/user_data/")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            val postData = "wst=" + URLEncoder.encode(token, "UTF-8")
+            conn.outputStream.write(postData.toByteArray(Charsets.UTF_8))
+            if (conn.responseCode == 200) {
+                val response = conn.inputStream.bufferedReader().readText()
+                if (response.contains("<vip>") && response.contains("1")) {
+                    return@withContext "VIP Aktívne"
+                } else {
+                    return@withContext "VIP Neaktívne"
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        "VIP Neznáme"
+    }
+}
+
 suspend fun getWebshareStreamLink(token: String, ident: String): String? {
     return withContext(Dispatchers.IO) {
         try {
@@ -432,7 +484,7 @@ suspend fun getWebshareStreamLink(token: String, ident: String): String? {
     }
 }
 
-suspend fun searchWebshareWithDetails(token: String, query: String, isSeries: Boolean): List<MediaItemData> {
+suspend fun searchWebshareReal(token: String, query: String): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
         val list = mutableListOf<MediaItemData>()
         try {
@@ -442,24 +494,30 @@ suspend fun searchWebshareWithDetails(token: String, query: String, isSeries: Bo
             conn.doOutput = true
             val postData = "wst=" + URLEncoder.encode(token, "UTF-8") +
                     "&what=" + URLEncoder.encode(query, "UTF-8") +
-                    "&offset=0&limit=10"
+                    "&offset=0&limit=15"
             conn.outputStream.write(postData.toByteArray(Charsets.UTF_8))
             
             if (conn.responseCode == 200) {
-                list.add(
-                    MediaItemData(
-                        id = "sample_ident_search",
-                        title = query.replaceFirstChar { it.uppercase() },
-                        year = "2024",
-                        rating = "ČSFD: 78% | IMDb: 7.2",
-                        description = "Nájdený súbor pre dopyt: $query",
-                        isSeries = isSeries,
-                        episodes = if (isSeries) listOf(
-                            Episode(1, "1. Epizóda", "ident_e1"),
-                            Episode(2, "2. Epizóda", "ident_e2")
-                        ) else emptyList()
-                    )
-                )
+                val response = conn.inputStream.bufferedReader().readText()
+                // Jednoduché parsovanie položiek z XML odpovedi Webshare API
+                val fileBlocks = response.split("<file>")
+                for (block in fileBlocks.drop(1)) {
+                    val name = block.substringAfter("<name>").substringBefore("</name>")
+                    val ident = block.substringAfter("<ident>").substringBefore("</ident>")
+                    val size = block.substringAfter("<size>").substringBefore("</size>")
+                    
+                    if (name.isNotEmpty() && ident.isNotEmpty()) {
+                        list.add(
+                            MediaItemData(
+                                id = ident,
+                                title = name,
+                                size = "${size.toLongOrNull()?.let { it / (1024 * 1024) } ?: 0} MB",
+                                ident = ident,
+                                description = "Webshare zdrojový súbor"
+                            )
+                        )
+                    }
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
