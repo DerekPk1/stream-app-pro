@@ -1,6 +1,8 @@
 package com.example.streamapp
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,11 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.viewpager2.widget.ViewPager2
-import androidx.media3.common.MediaItem as Media3Item
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
-import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -108,7 +105,6 @@ fun MainApp() {
                             isLoading = false
                             val finalToken = token ?: "demo_token"
                             
-                            // Uloženie tokenu do pamäte, aby sa nabudúce nepýtalo na prihlásenie
                             sharedPreferences.edit().putString("wst_token", finalToken).apply()
                             wstToken = finalToken
                             isLoggedIn = true
@@ -143,8 +139,7 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     val coroutineScope = rememberCoroutineScope()
 
     if (activePlayerUrl != null) {
-        // Vstavaný ExoPlayer priamo v aplikácii s podporou ovládania, tituliek a zvukov
-        EmbeddedVideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
+        VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
         return
     }
 
@@ -352,46 +347,31 @@ fun WatchlistScreen(title: String) {
     }
 }
 
-// Plnohodnotný vstavaný prehrávač videa priamo v aplikácii (ExoPlayer) s ovládaním a výberom stôp/tituliek
 @Composable
-fun EmbeddedVideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
+fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
     val context = LocalContext.current
-
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItem = Media3Item.fromUri(videoUrl)
-            setMediaItem(mediaItem)
-            prepare()
-            playWhenReady = true
+    
+    LaunchedEffect(videoUrl) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(videoUrl), "video/*")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = true // Zapne natívne tlačidlá na pretáčanie, pauzu, hlasitosť a výber kvality/tituliek
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Tlačidlo na návrat späť do aplikácie
-        Button(
-            onClick = {
-                exoPlayer.stop()
-                onBack()
-            },
-            modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
-        ) {
-            Text("← Späť")
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(text = "▶ Spúšťam prehrávač videa...", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onBack) {
+            Text("Späť do aplikácie")
         }
     }
 }
