@@ -3,10 +3,9 @@ package com.example.streamapp
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.OptIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,6 +21,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -273,7 +278,6 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
     var mediaItems by remember { mutableStateOf<List<MediaItemData>>(emptyList()) }
     var isSearching by rememberSaveable { mutableStateOf(false) }
     
-    // Načítanie histórie vyhľadávania z SharedPreferences
     val prefs = context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE)
     var searchHistory by remember { 
         mutableStateOf(prefs.getString("search_history", "")?.split("|||")?.filter { it.isNotEmpty() } ?: emptyList()) 
@@ -356,7 +360,6 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = {
                     if (searchQuery.isNotEmpty()) {
-                        // Uloženie do histórie vyhľadávania
                         val updatedHistory = (listOf(searchQuery) + searchHistory).distinct().take(10)
                         searchHistory = updatedHistory
                         prefs.edit().putString("search_history", updatedHistory.joinToString("|||")).apply()
@@ -372,7 +375,6 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                 }
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Zobrazenie histórie vyhľadávania, ak existuje a práve sa nevyhľadáva
                 if (searchHistory.isNotEmpty() && mediaItems.isEmpty()) {
                     Text(text = "🕒 História vyhľadávania:", style = MaterialTheme.typography.titleSmall)
                     Spacer(modifier = Modifier.height(4.dp))
@@ -392,6 +394,20 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                 }
                 
                 if (mediaItems.isNotEmpty()) {
+                    // Možnosti triedenia výsledkov
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        OutlinedButton(onClick = { mediaItems = mediaItems.sortedBy { it.title } }) {
+                            Text("🔤 Abecedne")
+                        }
+                        OutlinedButton(onClick = { mediaItems = mediaItems.sortedByDescending { it.size } }) {
+                            Text("📦 Podľa veľkosti")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     Column {
                         mediaItems.forEach { item ->
                             Card(
@@ -406,7 +422,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text(text = item.title, style = MaterialTheme.typography.titleMedium)
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(text = "Zdroj: ${item.description} | Veľkosť: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                    Text(text = "Zdroj: ${item.description} | Veľkość: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -473,33 +489,48 @@ fun saveHistory(context: Context, title: String, url: String, backup: String, ca
     }
 }
 
-// Inteligentný VideoPrehrávač s automatickým záložným zdrojom (Fallback)
+// Vylepšený VideoPrehrávač s ExoPlayerom a automatickým záložným zdrojom (Fallback)
+@OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerScreen(videoUrl: String, backupUrl: String?, onBack: () -> Unit) {
+    val context = LocalContext.current
     var currentUrl by rememberSaveable { mutableStateOf(videoUrl) }
     var hasSwitchedToBackup by rememberSaveable { mutableStateOf(false) }
+
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(currentUrl))
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (!hasSwitchedToBackup && !backupUrl.isNullOrEmpty() && backupUrl != currentUrl) {
+                    hasSwitchedToBackup = true
+                    currentUrl = backupUrl
+                    exoPlayer.setMediaItem(MediaItem.fromUri(currentUrl))
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
-                VideoView(ctx).apply {
-                    setVideoURI(Uri.parse(currentUrl))
-                    val mediaController = MediaController(ctx)
-                    mediaController.setAnchorView(this)
-                    setMediaController(mediaController)
-                    
-                    setOnErrorListener { _, _, _ ->
-                        if (!hasSwitchedToBackup && backupUrl != null && backupUrl != currentUrl) {
-                            hasSwitchedToBackup = true
-                            currentUrl = backupUrl
-                            setVideoURI(Uri.parse(currentUrl))
-                            start()
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    start()
+                PlayerView(ctx).apply {
+                    player =exoPlayer
+                    useController = true
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -507,7 +538,9 @@ fun VideoPlayerScreen(videoUrl: String, backupUrl: String?, onBack: () -> Unit) 
 
         Button(
             onClick = onBack,
-            modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
+            modifier = Modifier
+                .padding(16.dp)
+                .align(Alignment.TopStart)
         ) {
             Text("← Späť do aplikácie")
         }
