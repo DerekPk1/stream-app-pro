@@ -1,9 +1,10 @@
 package com.example.streamapp
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -139,6 +141,7 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     val coroutineScope = rememberCoroutineScope()
 
     if (activePlayerUrl != null) {
+        // Prehrávanie priamo v aplikácii cez natívny VideoView s posuvníkom na pretáčanie
         VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
         return
     }
@@ -347,31 +350,32 @@ fun WatchlistScreen(title: String) {
     }
 }
 
+// Integrovaný prehrávač videa priamo v aplikácii cez Android VideoView + ovládací panel na pretáčanie
 @Composable
 fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
     val context = LocalContext.current
-    
-    LaunchedEffect(videoUrl) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.parse(videoUrl), "video/*")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        try {
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(text = "▶ Spúšťam prehrávač videa...", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onBack) {
-            Text("Späť do aplikácie")
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { ctx ->
+                VideoView(ctx).apply {
+                    setVideoURI(Uri.parse(videoUrl))
+                    val mediaController = MediaController(ctx)
+                    mediaController.setAnchorView(this)
+                    setMediaController(mediaController)
+                    start()
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        Button(
+            onClick = onBack,
+            modifier = Modifier
+                .padding(16.dp)
+                .align(Alignment.TopStart)
+        ) {
+            Text("← Späť do aplikácie")
         }
     }
 }
