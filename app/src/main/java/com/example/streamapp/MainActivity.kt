@@ -1,7 +1,6 @@
 package com.example.streamapp
 
-import android.content.Intent
-import android.net.Uri
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,8 +12,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.viewpager2.widget.ViewPager2
+import androidx.media3.common.MediaItem as Media3Item
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,7 +41,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-data class MediaItem(
+data class MediaItemData(
     val id: String,
     val title: String,
     val year: String,
@@ -54,10 +59,14 @@ data class Episode(
 
 @Composable
 fun MainApp() {
-    var isLoggedIn by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val sharedPreferences = remember { context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE) }
+    
+    var wstToken by remember { mutableStateOf(sharedPreferences.getString("wst_token", "") ?: "") }
+    var isLoggedIn by remember { mutableStateOf(wstToken.isNotEmpty()) }
+    
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var wstToken by remember { mutableStateOf("") }
     var statusText by remember { mutableStateOf("Zadajte prihlasovacie údaje") }
     var isLoading by remember { mutableStateOf(false) }
 
@@ -97,7 +106,11 @@ fun MainApp() {
                         coroutineScope.launch {
                             val token = loginWebshare(username, password)
                             isLoading = false
-                            wstToken = token ?: "demo_token"
+                            val finalToken = token ?: "demo_token"
+                            
+                            // Uloženie tokenu do pamäte, aby sa nabudúce nepýtalo na prihlásenie
+                            sharedPreferences.edit().putString("wst_token", finalToken).apply()
+                            wstToken = finalToken
                             isLoggedIn = true
                         }
                     } else {
@@ -113,18 +126,25 @@ fun MainApp() {
             Text(text = statusText, color = MaterialTheme.colorScheme.secondary)
         }
     } else {
-        HomeDashboard(wstToken = wstToken)
+        HomeDashboard(
+            wstToken = wstToken,
+            onLogout = {
+                sharedPreferences.edit().remove("wst_token").apply()
+                isLoggedIn = false
+            }
+        )
     }
 }
 
 @Composable
-fun HomeDashboard(wstToken: String) {
+fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) } 
     var activePlayerUrl by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     if (activePlayerUrl != null) {
-        VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
+        // Vstavaný ExoPlayer priamo v aplikácii s podporou ovládania, tituliek a zvukov
+        EmbeddedVideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
         return
     }
 
@@ -183,8 +203,8 @@ fun HomeDashboard(wstToken: String) {
 fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPlayMedia: (String) -> Unit) {
     var subTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
-    var mediaItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var selectedSeries by remember { mutableStateOf<MediaItem?>(null) }
+    var mediaItems by remember { mutableStateOf<List<MediaItemData>>(emptyList()) }
+    var selectedSeries by remember { mutableStateOf<MediaItemData?>(null) }
     var isSearching by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -209,7 +229,7 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
                 Text("🔥 Najnovšie pridané", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 val sample = listOf(
-                    MediaItem(
+                    MediaItemData(
                         id = "sample_ident_1",
                         title = if (isSeries) "Stranger Things (Seriál)" else "Oppenheimer (Film)",
                         year = "2023",
@@ -266,7 +286,7 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
 }
 
 @Composable
-fun SeriesDetailScreen(series: MediaItem, onBack: () -> Unit, onPlayEpisode: (String) -> Unit) {
+fun SeriesDetailScreen(series: MediaItemData, onBack: () -> Unit, onPlayEpisode: (String) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onBack) { Text("← Späť") }
@@ -301,7 +321,7 @@ fun SeriesDetailScreen(series: MediaItem, onBack: () -> Unit, onPlayEpisode: (St
 }
 
 @Composable
-fun MediaList(items: List<MediaItem>, onClickItem: (MediaItem) -> Unit) {
+fun MediaList(items: List<MediaItemData>, onClickItem: (MediaItemData) -> Unit) {
     LazyColumn {
         items(items) { item ->
             Card(
@@ -332,31 +352,46 @@ fun WatchlistScreen(title: String) {
     }
 }
 
+// Plnohodnotný vstavaný prehrávač videa priamo v aplikácii (ExoPlayer) s ovládaním a výberom stôp/tituliek
 @Composable
-fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    
-    LaunchedEffect(videoUrl) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.parse(videoUrl), "video/*")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        try {
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            e.printStackTrace()
+fun EmbeddedVideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
+    val context = LocalContext.current
+
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItem = Media3Item.fromUri(videoUrl)
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(text = "▶ Spúšťam prehrávač videa...", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onBack) {
-            Text("Späť do aplikácie")
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = true // Zapne natívne tlačidlá na pretáčanie, pauzu, hlasitosť a výber kvality/tituliek
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Tlačidlo na návrat späť do aplikácie
+        Button(
+            onClick = {
+                exoPlayer.stop()
+                onBack()
+            },
+            modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
+        ) {
+            Text("← Späť")
         }
     }
 }
@@ -413,9 +448,9 @@ suspend fun getWebshareStreamLink(token: String, ident: String): String? {
     }
 }
 
-suspend fun searchWebshareWithDetails(token: String, query: String, isSeries: Boolean): List<MediaItem> {
+suspend fun searchWebshareWithDetails(token: String, query: String, isSeries: Boolean): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
-        val list = mutableListOf<MediaItem>()
+        val list = mutableListOf<MediaItemData>()
         try {
             val url = URL("https://webshare.cz/api/search/")
             val conn = url.openConnection() as HttpURLConnection
@@ -428,7 +463,7 @@ suspend fun searchWebshareWithDetails(token: String, query: String, isSeries: Bo
             
             if (conn.responseCode == 200) {
                 list.add(
-                    MediaItem(
+                    MediaItemData(
                         id = "sample_ident_search",
                         title = query.replaceFirstChar { it.uppercase() },
                         year = "2024",
