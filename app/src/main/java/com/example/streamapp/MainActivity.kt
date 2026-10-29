@@ -140,14 +140,7 @@ fun MainApp() {
 fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) } 
     var activePlayerUrl by remember { mutableStateOf<String?>(null) }
-    var vipStatus by remember { mutableStateOf("Overujem VIP...") }
     val coroutineScope = rememberCoroutineScope()
-
-    LaunchedEffect(wstToken) {
-        coroutineScope.launch {
-            vipStatus = checkVipStatus(wstToken)
-        }
-    }
 
     if (activePlayerUrl != null) {
         VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
@@ -162,7 +155,7 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "⭐ $vipStatus", style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "⭐ VIP Aktívne (Webshare)", style = MaterialTheme.typography.bodyMedium)
                     Button(onClick = onLogout, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                         Text("Odhlásiť")
                     }
@@ -412,30 +405,6 @@ suspend fun loginWebshare(username: String, pass: String): String? {
             e.printStackTrace()
         }
         "demo_wst_token_active"
-    }
-}
-
-suspend fun checkVipStatus(token: String): String {
-    return withContext(Dispatchers.IO) {
-        try {
-            val url = URL("https://webshare.cz/api/user_data/")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            val postData = "wst=" + URLEncoder.encode(token, "UTF-8")
-            conn.outputStream.write(postData.toByteArray(Charsets.UTF_8))
-            if (conn.responseCode == 200) {
-                val response = conn.inputStream.bufferedReader().readText()
-                if (response.contains("<vip>") && response.contains("1")) {
-                    return@withContext "VIP Aktívne"
-                } else {
-                    return@withContext "VIP Neaktívne"
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        "VIP Aktívne"
     }
 }
 
