@@ -30,10 +30,6 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.security.MessageDigest
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,7 +95,6 @@ fun MainApp() {
             )
         }
 
-        // Číslo verzie pevne zafixované v pravom dolnom rohu
         Text(
             text = "v1.0.1",
             style = MaterialTheme.typography.bodySmall,
@@ -394,7 +389,6 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                 }
                 
                 if (mediaItems.isNotEmpty()) {
-                    // Možnosti triedenia výsledkov
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -422,158 +416,10 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text(text = item.title, style = MaterialTheme.typography.titleMedium)
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(text = "Zdroj: ${item.description} | Veľkość: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                    Text(text = "Zdroj: ${item.description} \vert{} Veľkosť: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
                     }
                 } else if (!isSearching && searchQuery.isNotEmpty()) {
-                    Text("Žiadne výsledky.")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun WatchlistScreen(title: String, context: Context, onPlay: (String, String) -> Unit) {
-    val prefs = context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE)
-    val historyJson = prefs.getString("history_$title", "") ?: ""
-    val items = if (historyJson.isNotEmpty()) historyJson.split("|||") else emptyList()
-
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text(text = title, style = MaterialTheme.typography.headlineSmall)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (items.isEmpty()) {
-            Text("Zatiaľ žiadne položky v tomto zozname.")
-        } else {
-            LazyColumn {
-                items(items) { entry ->
-                    val parts = entry.split("###")
-                    if (parts.size >= 3) {
-                        val mediaTitle = parts[0]
-                        val url = parts[1]
-                        val backup = parts[2]
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { onPlay(url, backup) },
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(text = mediaTitle, style = MaterialTheme.typography.bodyLarge)
-                                Text("▶ Spustiť")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fun saveHistory(context: Context, title: String, url: String, backup: String, category: String) {
-    val prefs = context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE)
-    val key = "history_$category"
-    val existing = prefs.getString(key, "") ?: ""
-    val newItem = "$title###$url###$backup"
-    if (!existing.contains(newItem)) {
-        val updated = if (existing.isEmpty()) newItem else "$existing|||$newItem"
-        prefs.edit().putString(key, updated).apply()
-    }
-}
-
-// Vylepšený VideoPrehrávač s ExoPlayerom a automatickým záložným zdrojom (Fallback)
-@OptIn(UnstableApi::class)
-@Composable
-fun VideoPlayerScreen(videoUrl: String, backupUrl: String?, onBack: () -> Unit) {
-    val context = LocalContext.current
-    var currentUrl by rememberSaveable { mutableStateOf(videoUrl) }
-    var hasSwitchedToBackup by rememberSaveable { mutableStateOf(false) }
-
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(currentUrl))
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                if (!hasSwitchedToBackup && !backupUrl.isNullOrEmpty() && backupUrl != currentUrl) {
-                    hasSwitchedToBackup = true
-                    currentUrl = backupUrl
-                    exoPlayer.setMediaItem(MediaItem.fromUri(currentUrl))
-                    exoPlayer.prepare()
-                    exoPlayer.play()
-                }
-            }
-        }
-        exoPlayer.addListener(listener)
-
-        onDispose {
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player =exoPlayer
-                    useController = true
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        Button(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(16.dp)
-                .align(Alignment.TopStart)
-        ) {
-            Text("← Späť do aplikácie")
-        }
-    }
-}
-
-suspend fun searchCombinedSources(query: String): List<MediaItemData> {
-    return withContext(Dispatchers.IO) {
-        val list = mutableListOf<MediaItemData>()
-        try {
-            list.add(
-                MediaItemData(
-                    id = "ws_1",
-                    title = "$query (Webshare VIP - CZ Dabing)",
-                    size = "1.5 GB",
-                    streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                    backupUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                    description = "Webshare.cz"
-                )
-            )
-            list.add(
-                MediaItemData(
-                    id = "hs_1",
-                    title = "$query (Hellspy Konto - HD)",
-                    size = "1.1 GB",
-                    streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-                    backupUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                    description = "Hellspy.to"
-                )
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        list
-    }
-}
+                    Text("Žiad
