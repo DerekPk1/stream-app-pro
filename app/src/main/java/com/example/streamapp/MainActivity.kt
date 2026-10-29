@@ -52,56 +52,136 @@ data class MediaItemData(
 
 @Composable
 fun MainApp() {
-    var isLoggedIn by remember { mutableStateOf(true) }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE) }
 
-    if (!isLoggedIn) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp)
-                .imePadding(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(text = "Stream App - Webshare & Hellspy", style = MaterialTheme.typography.headlineMedium)
-            Spacer(modifier = Modifier.height(16.dp))
+    var webshareUser by remember { mutableStateOf(prefs.getString("ws_user", "") ?: "") }
+    var websharePass by remember { mutableStateOf(prefs.getString("ws_pass", "") ?: "") }
+    
+    var hellspyUser by remember { mutableStateOf(prefs.getString("hs_user", "") ?: "") }
+    var hellspyPass by remember { mutableStateOf(prefs.getString("hs_pass", "") ?: "") }
 
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text("Meno / Email") },
-                modifier = Modifier.fillMaxWidth()
+    var isConfigured by remember { 
+        mutableStateOf(prefs.getBoolean("is_configured", false)) 
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (!isConfigured) {
+            // Obrazovka pre nastavenie a prihlásenie k jednotlivým kontám
+            AccountSetupScreen(
+                initialWsUser = webshareUser,
+                initialWsPass = websharePass,
+                initialHsUser = hellspyUser,
+                initialHsPass = hellspyPass,
+                onSave = { wsU, wsP, hsU, hsP ->
+                    prefs.edit()
+                        .putString("ws_user", wsU)
+                        .putString("ws_pass", wsP)
+                        .putString("hs_user", hsU)
+                        .putString("hs_pass", hsP)
+                        .putBoolean("is_configured", true)
+                        .apply()
+                    webshareUser = wsU
+                    websharePass = wsP
+                    hellspyUser = hsU
+                    hellspyPass = hsP
+                    isConfigured = true
+                }
             )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Heslo") },
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
+        } else {
+            HomeDashboard(
+                onOpenSettings = { isConfigured = false }
             )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
-                onClick = { isLoggedIn = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Vstúpiť do aplikácie")
-            }
         }
-    } else {
-        HomeDashboard(
-            onLogout = { isLoggedIn = false }
+
+        // Číslo verzie pevne zafixované v pravom dolnom rohu
+        Text(
+            text = "v1.0.0",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
         )
     }
 }
 
 @Composable
-fun HomeDashboard(onLogout: () -> Unit) {
+fun AccountSetupScreen(
+    initialWsUser: String,
+    initialWsPass: String,
+    initialHsUser: String,
+    initialHsPass: String,
+    onSave: (String, String, String, String) -> Unit
+) {
+    var wsUser by remember { mutableStateOf(initialWsUser) }
+    var wsPass by remember { mutableStateOf(initialWsPass) }
+    var hsUser by remember { mutableStateOf(initialHsUser) }
+    var hsPass by remember { mutableStateOf(initialHsPass) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp)
+            .imePadding(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(text = "⚙️ Správa kont k zdrojom", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Webshare Sekcia
+        Text(text = "Webshare.cz konto", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = wsUser,
+            onValueChange = { wsUser = it },
+            label = { Text("Webshare Meno / Email") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = wsPass,
+            onValueChange = { wsPass = it },
+            label = { Text("Webshare Heslo") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Hellspy Sekcia
+        Text(text = "Hellspy.to konto", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = hsUser,
+            onValueChange = { hsUser = it },
+            label = { Text("Hellspy Meno / Email") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = hsPass,
+            onValueChange = { hsPass = it },
+            label = { Text("Hellspy Heslo") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = { onSave(wsUser, wsPass, hsUser, hsPass) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Uložiť konta a vstúpiť do aplikácie")
+        }
+    }
+}
+
+@Composable
+fun HomeDashboard(onOpenSettings: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) } 
     var activePlayerUrl by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -119,9 +199,9 @@ fun HomeDashboard(onLogout: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "⭐ VIP & Stabilný Prehrávač Aktívny", style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = onLogout, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                        Text("Zmeniť")
+                    Text(text = "⭐ VIP pripojené (Webshare & Hellspy)", style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = onOpenSettings) {
+                        Text("Kontá")
                     }
                 }
             }
@@ -215,7 +295,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(text = "▶ Big Buck Bunny (Testovacie video)", style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "Kliknite pre okamžité overenie prehrávania v appke.", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "Kliknite pre otestovanie prehrávania.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -233,7 +313,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                     subTab = 2
                                     isSearching = true
                                     coroutineScope.launch {
-                                        mediaItems = searchMediaSources(genre)
+                                        mediaItems = searchCombinedSources(genre)
                                         isSearching = false
                                     }
                                 },
@@ -256,12 +336,12 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                     if (searchQuery.isNotEmpty()) {
                         isSearching = true
                         coroutineScope.launch {
-                            mediaItems = searchMediaSources(searchQuery)
+                            mediaItems = searchCombinedSources(searchQuery)
                             isSearching = false
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať")
+                    Text(if (isSearching) "Vyhľadávam v kontách..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -371,26 +451,26 @@ fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
     }
 }
 
-suspend fun searchMediaSources(query: String): List<MediaItemData> {
+suspend fun searchCombinedSources(query: String): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
         val list = mutableListOf<MediaItemData>()
         try {
             list.add(
                 MediaItemData(
-                    id = "1",
-                    title = "$query (Webshare / Hellspy HD Mirror)",
-                    size = "1.4 GB",
+                    id = "ws_1",
+                    title = "$query (Webshare VIP - CZ Dabing)",
+                    size = "1.5 GB",
                     streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                    description = "Webshare & Hellspy Source"
+                    description = "Webshare.cz"
                 )
             )
             list.add(
                 MediaItemData(
-                    id = "2",
-                    title = "$query (Alternatívny stream)",
-                    size = "950 MB",
+                    id = "hs_1",
+                    title = "$query (Hellspy Konto - HD)",
+                    size = "1.1 GB",
                     streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-                    description = "Hellspy Stream"
+                    description = "Hellspy.to"
                 )
             )
         } catch (e: Exception) {
