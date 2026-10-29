@@ -3,6 +3,8 @@ package com.example.streamapp
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -17,9 +19,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem as Media3Item
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -144,7 +143,6 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     var vipStatus by remember { mutableStateOf("Overujem VIP...") }
     val coroutineScope = rememberCoroutineScope()
 
-    // Overenie VIP stavu pri štarte dashboardu
     LaunchedEffect(wstToken) {
         coroutineScope.launch {
             vipStatus = checkVipStatus(wstToken)
@@ -152,7 +150,7 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     }
 
     if (activePlayerUrl != null) {
-        ExoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
+        VideoPlayerScreen(videoUrl = activePlayerUrl!!, onBack = { activePlayerUrl = null })
         return
     }
 
@@ -285,7 +283,6 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
                 Spacer(modifier = Modifier.height(16.dp))
                 MediaList(items = mediaItems, onClickItem = { item ->
                     if (isSeries) {
-                        // Pre seriály vytvoríme vzorové epizódne položky na základe nájdeného súboru
                         selectedSeries = item.copy(isSeries = true, episodes = listOf(
                             Episode(1, item.title, item.ident)
                         ))
@@ -365,42 +362,27 @@ fun WatchlistScreen(title: String) {
     }
 }
 
-// Integrovaný ExoPlayer pre plynulé prehrávanie všetkých formátov (MKV, MP4) priamo v aplikácii
+// Integrovaný VideoView prehrávač priamo v appke s ovládacím panelom
 @Composable
-fun ExoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
+fun VideoPlayerScreen(videoUrl: String, onBack: () -> Unit) {
     val context = LocalContext.current
-
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItem = Media3Item.fromUri(videoUrl)
-            setMediaItem(mediaItem)
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
-    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = true
+                VideoView(ctx).apply {
+                    setVideoURI(Uri.parse(videoUrl))
+                    val mediaController = MediaController(ctx)
+                    mediaController.setAnchorView(this)
+                    setMediaController(mediaController)
+                    start()
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
         Button(
-            onClick = {
-                exoPlayer.stop()
-                onBack()
-            },
+            onClick = onBack,
             modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
         ) {
             Text("← Späť do aplikácie")
@@ -499,7 +481,6 @@ suspend fun searchWebshareReal(token: String, query: String): List<MediaItemData
             
             if (conn.responseCode == 200) {
                 val response = conn.inputStream.bufferedReader().readText()
-                // Jednoduché parsovanie položiek z XML odpovedi Webshare API
                 val fileBlocks = response.split("<file>")
                 for (block in fileBlocks.drop(1)) {
                     val name = block.substringAfter("<name>").substringBefore("</name>")
