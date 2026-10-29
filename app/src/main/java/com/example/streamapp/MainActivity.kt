@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -73,7 +75,11 @@ fun MainApp() {
 
     if (!isLoggedIn) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp)
+                .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -140,6 +146,7 @@ fun MainApp() {
 fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) } 
     var activePlayerUrl by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
     if (activePlayerUrl != null) {
@@ -193,27 +200,39 @@ fun HomeDashboard(wstToken: String, onLogout: () -> Unit) {
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTab) {
-                0 -> MediaSectionScreen(title = "🎬 Filmy", wstToken = wstToken, isSeries = false, onPlayMedia = { ident ->
+                0 -> MediaSectionScreen(title = "🎬 Filmy", wstToken = wstToken, isSeries = false, context = context, onPlayMedia = { ident, title ->
+                    saveHistory(context, title, ident, "Rozpozerané")
                     coroutineScope.launch {
                         val url = getWebshareStreamLink(wstToken, ident)
                         activePlayerUrl = url ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
                     }
                 })
-                1 -> MediaSectionScreen(title = "📺 Seriály", wstToken = wstToken, isSeries = true, onPlayMedia = { ident ->
+                1 -> MediaSectionScreen(title = "📺 Seriály", wstToken = wstToken, isSeries = true, context = context, onPlayMedia = { ident, title ->
+                    saveHistory(context, title, ident, "Rozpozerané")
                     coroutineScope.launch {
                         val url = getWebshareStreamLink(wstToken, ident)
                         activePlayerUrl = url ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
                     }
                 })
-                2 -> WatchlistScreen(title = "⏳ Rozpozerané")
-                3 -> WatchlistScreen(title = "✅ Pozreté")
+                2 -> WatchlistScreen(title = "⏳ Rozpozerané", context = context, wstToken = wstToken, onPlay = { ident ->
+                    coroutineScope.launch {
+                        val url = getWebshareStreamLink(wstToken, ident)
+                        activePlayerUrl = url ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                    }
+                })
+                3 -> WatchlistScreen(title = "✅ Pozreté", context = context, wstToken = wstToken, onPlay = { ident ->
+                    coroutineScope.launch {
+                        val url = getWebshareStreamLink(wstToken, ident)
+                        activePlayerUrl = url ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                    }
+                })
             }
         }
     }
 }
 
 @Composable
-fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPlayMedia: (String) -> Unit) {
+fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, context: Context, onPlayMedia: (String, String) -> Unit) {
     var subTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     var mediaItems by remember { mutableStateOf<List<MediaItemData>>(emptyList()) }
@@ -222,11 +241,19 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
     val coroutineScope = rememberCoroutineScope()
 
     if (selectedSeries != null) {
-        SeriesDetailScreen(series = selectedSeries!!, onBack = { selectedSeries = null }, onPlayEpisode = onPlayMedia)
+        SeriesDetailScreen(series = selectedSeries!!, onBack = { selectedSeries = null }, onPlayEpisode = { ident ->
+            onPlayMedia(ident, selectedSeries!!.title)
+        })
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+            .imePadding()
+    ) {
         Text(text = title, style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -239,16 +266,30 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
 
         when (subTab) {
             0 -> {
-                Text("🔥 Odporúčané / Najnovšie", style = MaterialTheme.typography.titleMedium)
+                Text("🔥 Najnovšie pridané položky", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Zadajte názov v záložke 'Hľadať' pre vyhľadanie obsahu zo služby Webshare.")
+                Text("Použite záložku 'Hľadať' pre vyhľadanie konkrétnych filmov alebo seriálov.")
             }
             1 -> {
                 Text("🎭 Výber žánrov", style = MaterialTheme.typography.titleMedium)
-                val genres = listOf("Akčné", "Komédie", "Dráma", "Sci-Fi", "Thriller")
-                LazyColumn {
-                    items(genres) { genre ->
-                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                val genres = listOf("Akčné", "Komédie", "Dráma", "Sci-Fi", "Thriller", "Horor")
+                Column {
+                    genres.forEach { genre ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable {
+                                    searchQuery = genre
+                                    subTab = 2
+                                    isSearching = true
+                                    coroutineScope.launch {
+                                        mediaItems = searchWebshareReal(wstToken, genre, isSeries)
+                                        isSearching = false
+                                    }
+                                },
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
                             Text(text = "📁 $genre", modifier = Modifier.padding(16.dp))
                         }
                     }
@@ -258,7 +299,7 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Zadajte názov filmu/seriálu...") },
+                    label = { Text(if (isSeries) "Hľadať seriál..." else "Hľadať film...") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -266,23 +307,47 @@ fun MediaSectionScreen(title: String, wstToken: String, isSeries: Boolean, onPla
                     if (searchQuery.isNotEmpty()) {
                         isSearching = true
                         coroutineScope.launch {
-                            mediaItems = searchWebshareReal(wstToken, searchQuery)
+                            mediaItems = searchWebshareReal(wstToken, searchQuery, isSeries)
                             isSearching = false
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam na Webshare..." else "Vyhľadať")
+                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                MediaList(items = mediaItems, onClickItem = { item ->
-                    if (isSeries) {
-                        selectedSeries = item.copy(isSeries = true, episodes = listOf(
-                            Episode(1, item.title, item.ident)
-                        ))
-                    } else {
-                        onPlayMedia(item.ident)
+                
+                if (mediaItems.isNotEmpty()) {
+                    Column {
+                        mediaItems.forEach { item ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp)
+                                    .clickable {
+                                        if (isSeries) {
+                                            selectedSeries = item.copy(isSeries = true, episodes = listOf(
+                                                Episode(1, "${item.title} - 1. Časť", item.ident),
+                                                Episode(2, "${item.title} - 2. Časť", item.ident)
+                                            ))
+                                        } else {
+                                            onPlayMedia(item.ident, item.title)
+                                        }
+                                    },
+                                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(text = item.title, style = MaterialTheme.typography.titleMedium)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = "Veľkość: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(text = item.description, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
                     }
-                })
+                } else {
+                    Text("Žiadne výsledky na zobrazenie.")
+                }
             }
         }
     }
@@ -314,7 +379,7 @@ fun SeriesDetailScreen(series: MediaItemData, onBack: () -> Unit, onPlayEpisode:
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "${episode.number}. ${episode.title}", style = MaterialTheme.typography.bodyLarge)
+                        Text(text = episode.title, style = MaterialTheme.typography.bodyLarge)
                         Text("▶ Prehrať")
                     }
                 }
@@ -324,34 +389,55 @@ fun SeriesDetailScreen(series: MediaItemData, onBack: () -> Unit, onPlayEpisode:
 }
 
 @Composable
-fun MediaList(items: List<MediaItemData>, onClickItem: (MediaItemData) -> Unit) {
-    LazyColumn {
-        items(items) { item ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .clickable { onClickItem(item) },
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = item.title, style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = "Veľkosť: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(text = item.description, style = MaterialTheme.typography.bodySmall)
+fun WatchlistScreen(title: String, context: Context, wstToken: String, onPlay: (String) -> Unit) {
+    val prefs = context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE)
+    val historyJson = prefs.getString("history_$title", "") ?: ""
+    val items = if (historyJson.isNotEmpty()) historyJson.split("|||") else emptyList()
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text(text = title, style = MaterialTheme.typography.headlineSmall)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (items.isEmpty()) {
+            Text("Zatiaľ žiadne položky v tomto zozname.")
+        } else {
+            LazyColumn {
+                items(items) { entry ->
+                    val parts = entry.split("###")
+                    if (parts.size == 2) {
+                        val mediaTitle = parts[0]
+                        val ident = parts[1]
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable { onPlay(ident) },
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = mediaTitle, style = MaterialTheme.typography.bodyLarge)
+                                Text("▶ Spustiť")
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-fun WatchlistScreen(title: String) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text(text = title, style = MaterialTheme.typography.headlineSmall)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Zatiaľ žiadne položky v tomto zozname.")
+fun saveHistory(context: Context, title: String, ident: String, category: String) {
+    val prefs = context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE)
+    val key = "history_$category"
+    val existing = prefs.getString(key, "") ?: ""
+    val newItem = "$title###$ident"
+    if (!existing.contains(newItem)) {
+        val updated = if (existing.isEmpty()) newItem else "$existing|||$newItem"
+        prefs.edit().putString(key, updated).apply()
     }
 }
 
@@ -432,7 +518,7 @@ suspend fun getWebshareStreamLink(token: String, ident: String): String? {
     }
 }
 
-suspend fun searchWebshareReal(token: String, query: String): List<MediaItemData> {
+suspend fun searchWebshareReal(token: String, query: String, isSeries: Boolean): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
         val list = mutableListOf<MediaItemData>()
         try {
@@ -442,7 +528,7 @@ suspend fun searchWebshareReal(token: String, query: String): List<MediaItemData
             conn.doOutput = true
             val postData = "wst=" + URLEncoder.encode(token, "UTF-8") +
                     "&what=" + URLEncoder.encode(query, "UTF-8") +
-                    "&offset=0&limit=15"
+                    "&offset=0&limit=20"
             conn.outputStream.write(postData.toByteArray(Charsets.UTF_8))
             
             if (conn.responseCode == 200) {
@@ -454,15 +540,25 @@ suspend fun searchWebshareReal(token: String, query: String): List<MediaItemData
                     val size = block.substringAfter("<size>").substringBefore("</size>")
                     
                     if (name.isNotEmpty() && ident.isNotEmpty()) {
-                        list.add(
-                            MediaItemData(
-                                id = ident,
-                                title = name,
-                                size = "${size.toLongOrNull()?.let { it / (1024 * 1024) } ?: 0} MB",
-                                ident = ident,
-                                description = "Webshare zdrojový súbor"
+                        val lowerName = name.lowercase()
+                        val matchesFilter = if (isSeries) {
+                            lowerName.contains("s0") || lowerName.contains("serie") || lowerName.contains("ep") || lowerName.contains("smer") || lowerName.contains("cz")
+                        } else {
+                            !lowerName.contains("s0") && !lowerName.contains("s1")
+                        }
+
+                        if (matchesFilter) {
+                            list.add(
+                                MediaItemData(
+                                    id = ident,
+                                          title = name,
+                                    size = "${size.toLongOrNull()?.let { it / (1024 * 1024) } ?: 0} MB",
+                                    ident = ident,
+                                    description = "Webshare zdrojový súbor",
+                                    isSeries = isSeries
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
