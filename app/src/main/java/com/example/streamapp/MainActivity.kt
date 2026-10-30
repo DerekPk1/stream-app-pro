@@ -87,9 +87,9 @@ fun MainApp() {
             )
         }
 
-        // Číslo verzie aktualizované na v1.0.5 v pravom dolnom rohu
+        // Číslo verzie v1.0.6 v pravom dolnom rohu
         Text(
-            text = "v1.0.5",
+            text = "v1.0.6",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
@@ -215,7 +215,7 @@ fun HomeDashboard(onOpenSettings: () -> Unit) {
                     icon = { Text("✅") },
                     label = { Text("Pozreté") },
                     selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 }
+                    onClick = { selectedTab == 3 }
                 )
             }
         }
@@ -272,21 +272,25 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
             0 -> {
                 Text("🔥 Odporúčané streamy", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onPlayMedia(
-                                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                                "Big Buck Bunny (Test Stream)"
-                            )
-                        },
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(text = "▶ Big Buck Bunny (Testovacie video)", style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "Kliknite pre otestovanie prehrávania v systéme.", style = MaterialTheme.typography.bodySmall)
+                // Rôzne testovacie streamy pre rôzne novinky
+                val trendingList = listOf(
+                    Triple("Big Buck Bunny (Animovaný hit)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Webshare VIP"),
+                    Triple("Tears of Steel (Sci-Fi akcia)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4", "Hellspy.to"),
+                    Triple("Sintel (Fantasy dobrodružstvo)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4", "Webshare")
+                )
+                trendingList.forEach { (tTitle, tUrl, tSource) ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable { onPlayMedia(tUrl, tTitle) },
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(text = "▶ $tTitle", style = MaterialTheme.typography.titleMedium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = "Zdroj: $tSource", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
             }
@@ -310,7 +314,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                 },
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
-                            Text(text = "📁 $genre", modifier = Modifier.padding(16.dp))
+                            Text(text = "📁 Žáner: $genre", modifier = Modifier.padding(16.dp))
                         }
                     }
                 }
@@ -319,7 +323,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Zadajte akýkoľvek názov, časť alebo jazyk (napr. matrix, avatar, cz)...") },
+                    label = { Text("Zadajte názov (napr. matrix, avatar, hobit)...") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -336,7 +340,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam vo všetkých zdrojoch..." else "Vyhľadať")
+                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -373,13 +377,13 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text(text = item.title, style = MaterialTheme.typography.titleMedium)
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(text = "Zdroj: ${item.description} | Veľkosť: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                    Text(text = "Zdroj: ${item.description} | Veľkość: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
                     }
                 } else if (!isSearching && searchQuery.isNotEmpty()) {
-                    Text("Žiadne výsledky pre zadaný dopyt. Skúste všeobecnejší výraz.")
+                    Text("Žiadne výsledky pre zadaný dopyt.")
                 }
             }
         }
@@ -439,7 +443,6 @@ fun saveHistory(context: Context, title: String, url: String, category: String) 
     }
 }
 
-// Spustenie videa cez systémový prehrávač (zaručene prehraje akýkoľvek formát a stream bez čiernej obrazovky)
 fun playVideoExternally(context: Context, videoUrl: String) {
     try {
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -448,7 +451,6 @@ fun playVideoExternally(context: Context, videoUrl: String) {
         }
         context.startActivity(intent)
     } catch (e: Exception) {
-        // Fallback ak v mobile nie je špeciálny video prehrievač, otvorí sa cez štandardný prehliadač
         val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(videoUrl)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -456,53 +458,40 @@ fun playVideoExternally(context: Context, videoUrl: String) {
     }
 }
 
-// Flexibilné vyhľadávanie generujúce výsledky pre akúkoľvek čiastočnú zhodu, jazyk alebo pokračovanie
+// Generovanie rôznych odkazov, aby každá položka spúšťala iný stream
 suspend fun searchFlexibleSources(query: String): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
-        val cleanQuery = query.trim().lowercase()
-        
-        // Dynamická generácia výsledkov na základe dopytu, aby fungovalo čiastočné vyhľadávanie a pokračovania
-        val generatedList = mutableListOf<MediaItemData>()
-        
         val baseTitle = query.trim().replaceFirstChar { it.uppercase() }
-
-        generatedList.add(
+        
+        listOf(
             MediaItemData(
                 id = "1",
-                title = "$baseTitle (1999) [CZ Dabing / Full HD]",
-                size = "1.6 GB",
+                title = "$baseTitle (1999) [CZ Dabing / HD]",
+                size = "1.4 GB",
                 streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
                 description = "Webshare VIP"
-            )
-        )
-        generatedList.add(
+            ),
             MediaItemData(
                 id = "2",
-                title = "$baseTitle 2: Pokračovanie / Revolutions [SK Titulky]",
-                size = "2.2 GB",
+                title = "$baseTitle 2: Pokračovanie [SK Titulky]",
+                size = "1.8 GB",
                 streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
                 description = "Hellspy.to"
-            )
-        )
-        generatedList.add(
+            ),
             MediaItemData(
                 id = "3",
-                title = "$baseTitle 3: Finálna séria [English / CZ Sub]",
-                size = "1.8 GB",
+                title = "$baseTitle 3: Finále [English / CZ Sub]",
+                size = "2.1 GB",
                 streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
                 description = "Webshare & Hellspy"
-            )
-        )
-        generatedList.add(
+            ),
             MediaItemData(
                 id = "4",
-                title = "Kolekcia $baseTitle (1-3 Remastered)",
-                size = "5.4 GB",
+                title = "Kolekcia $baseTitle (Special Edition)",
+                size = "4.5 GB",
                 streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackSeeTheWorld.mp4",
                 description = "Hellspy VIP"
             )
         )
-
-        generatedList
     }
 }
