@@ -94,9 +94,9 @@ fun MainApp() {
             )
         }
 
-        // Číslo verzie pevne zafixované v pravom dolnom rohu
+        // Číslo verzie aktualizované na v1.0.2 pevne v pravom dolnom rohu
         Text(
-            text = "v1.0.1",
+            text = "v1.0.2",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
@@ -273,7 +273,6 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
     var mediaItems by remember { mutableStateOf<List<MediaItemData>>(emptyList()) }
     var isSearching by rememberSaveable { mutableStateOf(false) }
     
-    // Načítanie histórie vyhľadávania z SharedPreferences
     val prefs = context.getSharedPreferences("StreamAppPrefs", Context.MODE_PRIVATE)
     var searchHistory by remember { 
         mutableStateOf(prefs.getString("search_history", "")?.split("|||")?.filter { it.isNotEmpty() } ?: emptyList()) 
@@ -335,7 +334,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                     subTab = 2
                                     isSearching = true
                                     coroutineScope.launch {
-                                        mediaItems = searchCombinedSources(genre)
+                                        mediaItems = searchFuzzySources(genre)
                                         isSearching = false
                                     }
                                 },
@@ -350,29 +349,27 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Zadajte názov (napr. Avatar, Matrix)...") },
+                    label = { Text("Zadajte názov (napr. matrix, avatar, cz)...") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = {
                     if (searchQuery.isNotEmpty()) {
-                        // Uloženie do histórie vyhľadávania
                         val updatedHistory = (listOf(searchQuery) + searchHistory).distinct().take(10)
                         searchHistory = updatedHistory
                         prefs.edit().putString("search_history", updatedHistory.joinToString("|||")).apply()
 
                         isSearching = true
                         coroutineScope.launch {
-                            mediaItems = searchCombinedSources(searchQuery)
+                            mediaItems = searchFuzzySources(searchQuery)
                             isSearching = false
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam v kontách..." else "Vyhľadať")
+                    Text(if (isSearching) "Vyhľadávam čiastočne..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Zobrazenie histórie vyhľadávania, ak existuje a práve sa nevyhľadáva
                 if (searchHistory.isNotEmpty() && mediaItems.isEmpty()) {
                     Text(text = "🕒 História vyhľadávania:", style = MaterialTheme.typography.titleSmall)
                     Spacer(modifier = Modifier.height(4.dp))
@@ -381,7 +378,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                             searchQuery = historyItem
                             isSearching = true
                             coroutineScope.launch {
-                                mediaItems = searchCombinedSources(historyItem)
+                                mediaItems = searchFuzzySources(historyItem)
                                 isSearching = false
                             }
                         }) {
@@ -412,7 +409,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                         }
                     }
                 } else if (!isSearching && searchQuery.isNotEmpty()) {
-                    Text("Žiadne výsledky.")
+                    Text("Žiadne čiastočné zhody.")
                 }
             }
         }
@@ -473,11 +470,12 @@ fun saveHistory(context: Context, title: String, url: String, backup: String, ca
     }
 }
 
-// Inteligentný VideoPrehrávač s automatickým záložným zdrojom (Fallback)
+// Prehrávač s detailným vypisovaním chybových hlásení na obrazovku pre lepšiu diagnostiku
 @Composable
 fun VideoPlayerScreen(videoUrl: String, backupUrl: String?, onBack: () -> Unit) {
     var currentUrl by rememberSaveable { mutableStateOf(videoUrl) }
     var hasSwitchedToBackup by rememberSaveable { mutableStateOf(false) }
+    var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
@@ -488,7 +486,9 @@ fun VideoPlayerScreen(videoUrl: String, backupUrl: String?, onBack: () -> Unit) 
                     mediaController.setAnchorView(this)
                     setMediaController(mediaController)
                     
-                    setOnErrorListener { _, _, _ ->
+                    setOnErrorListener { _, what, extra ->
+                        val err = "Chyba prehrávania: what=$what, extra=$extra (URL: $currentUrl)"
+                        errorMessage = err
                         if (!hasSwitchedToBackup && backupUrl != null && backupUrl != currentUrl) {
                             hasSwitchedToBackup = true
                             currentUrl = backupUrl
@@ -505,6 +505,22 @@ fun VideoPlayerScreen(videoUrl: String, backupUrl: String?, onBack: () -> Unit) 
             modifier = Modifier.fillMaxSize()
         )
 
+        // Ak nastane chyba, zobrazíme ju priamo na obrazovke pre okamžitú spätnú väzbu
+        if (errorMessage != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(32.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = "⚠️ Diagnostika chyby:", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = errorMessage!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+                }
+            }
+        }
+
         Button(
             onClick = onBack,
             modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
@@ -514,33 +530,19 @@ fun VideoPlayerScreen(videoUrl: String, backupUrl: String?, onBack: () -> Unit) 
     }
 }
 
-suspend fun searchCombinedSources(query: String): List<MediaItemData> {
+// Inteligentné čiastočné (fuzzy) vyhľadávanie podporujúce akékoľvek podreťazce (CZ/SK/EN)
+suspend fun searchFuzzySources(query: String): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
-        val list = mutableListOf<MediaItemData>()
-        try {
-            list.add(
-                MediaItemData(
-                    id = "ws_1",
-                    title = "$query (Webshare VIP - CZ Dabing)",
-                    size = "1.5 GB",
-                    streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                    backupUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                    description = "Webshare.cz"
-                )
-            )
-            list.add(
-                MediaItemData(
-                    id = "hs_1",
-                    title = "$query (Hellspy Konto - HD)",
-                    size = "1.1 GB",
-                    streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-                    backupUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                    description = "Hellspy.to"
-                )
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        list
+        val allSimulatedItems = listOf(
+            MediaItemData("1", "Matrix (1999) [CZ Dabing]", "1.4 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Webshare VIP"),
+            MediaItemData("2", "Matrix Reloaded 2 [SK Titulky]", "1.6 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Hellspy.to"),
+            MediaItemData("3", "Matrix Revolutions 3 [English]", "1.5 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Webshare.cz"),
+            MediaItemData("4", "Avatar: Cesta vody [CZ]", "2.1 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackSeeTheWorld.mp4", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Hellspy"),
+            MediaItemData("5", "Pán Prsteňov: Spoločenstvo Prsteňa [CZ/SK]", "2.0 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Webshare")
+        )
+
+        val cleanQuery = query.trim().lowercase()
+        // Filtrovanie na základe čiastočnej zhody (obsahuje hľadaný výraz bez ohľadu na veľkosť písmen alebo pozíciu)
+        allSimulatedItems.filter { it.title.lowercase().contains(cleanQuery) }
     }
 }
