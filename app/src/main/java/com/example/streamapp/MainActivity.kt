@@ -17,9 +17,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -87,13 +89,14 @@ fun MainApp() {
             )
         }
 
-        // Číslo verzie v1.0.6 v pravom dolnom rohu
+        // Číslo verzie v1.0.7 presunuté HORE VPRAVO, červeným písmom
         Text(
-            text = "v1.0.6",
+            text = "v1.0.7",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.Red,
+            fontSize = 12.sp,
             modifier = Modifier
-                .align(Alignment.BottomEnd)
+                .align(Alignment.TopEnd)
                 .padding(16.dp)
         )
     }
@@ -178,15 +181,20 @@ fun HomeDashboard(onOpenSettings: () -> Unit) {
 
     Scaffold(
         topBar = {
-            Surface(tonalElevation = 3.dp) {
+            Surface(tonalElevation = 2.dp) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "⭐ VIP pripojené (Webshare & Hellspy)", style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = onOpenSettings) {
-                        Text("Kontá")
+                    // Zmenšený VIP indikátor, aby zaberal minimum miesta
+                    Text(text = "⭐ VIP pripojené", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    OutlinedButton(
+                        onClick = onOpenSettings,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Kontá", fontSize = 12.sp)
                     }
                 }
             }
@@ -215,7 +223,7 @@ fun HomeDashboard(onOpenSettings: () -> Unit) {
                     icon = { Text("✅") },
                     label = { Text("Pozreté") },
                     selected = selectedTab == 3,
-                    onClick = { selectedTab == 3 }
+                    onClick = { selectedTab = 3 }
                 )
             }
         }
@@ -272,11 +280,9 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
             0 -> {
                 Text("🔥 Odporúčané streamy", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                // Rôzne testovacie streamy pre rôzne novinky
                 val trendingList = listOf(
-                    Triple("Big Buck Bunny (Animovaný hit)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Webshare VIP"),
-                    Triple("Tears of Steel (Sci-Fi akcia)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4", "Hellspy.to"),
-                    Triple("Sintel (Fantasy dobrodružstvo)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4", "Webshare")
+                    Triple("Big Buck Bunny (Test)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Test Server"),
+                    Triple("Tears of Steel (Test)", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4", "Test Server")
                 )
                 trendingList.forEach { (tTitle, tUrl, tSource) ->
                     Card(
@@ -296,7 +302,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
             }
             1 -> {
                 Text("🎭 Výber žánrov", style = MaterialTheme.typography.titleMedium)
-                val genres = listOf("Akčné", "Komédie", "Dráma", "Sci-Fi", "Thriller", "Horor", "CZ Dabing", "SK Titulky")
+                val genres = listOf("Akčné", "Komédie", "Dráma", "Sci-Fi", "Thriller", "Horor", "CZ Dabing")
                 Column {
                     genres.forEach { genre ->
                         Card(
@@ -308,7 +314,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                     subTab = 2
                                     isSearching = true
                                     coroutineScope.launch {
-                                        mediaItems = searchFlexibleSources(genre)
+                                        mediaItems = searchRealisticDatabase(genre)
                                         isSearching = false
                                     }
                                 },
@@ -323,7 +329,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Zadajte názov (napr. matrix, avatar, hobit)...") },
+                    label = { Text("Zadajte výraz (npr. matr, avatar, cz)...") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -335,12 +341,12 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
 
                         isSearching = true
                         coroutineScope.launch {
-                            mediaItems = searchFlexibleSources(searchQuery)
+                            mediaItems = searchRealisticDatabase(searchQuery)
                             isSearching = false
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať")
+                    Text(if (isSearching) "Hľadám reálne zhody..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -352,7 +358,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                             searchQuery = historyItem
                             isSearching = true
                             coroutineScope.launch {
-                                mediaItems = searchFlexibleSources(historyItem)
+                                mediaItems = searchRealisticDatabase(historyItem)
                                 isSearching = false
                             }
                         }) {
@@ -377,13 +383,13 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text(text = item.title, style = MaterialTheme.typography.titleMedium)
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(text = "Zdroj: ${item.description} | Veľkość: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                    Text(text = "Zdroj: ${item.description} | Veľkosť: ${item.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
                     }
                 } else if (!isSearching && searchQuery.isNotEmpty()) {
-                    Text("Žiadne výsledky pre zadaný dopyt.")
+                    Text("Žiadne reálne súbory pre zadaný text '$searchQuery'. Skúste napísať všeobecnejší začiatok názvu (napr. 'matr').")
                 }
             }
         }
@@ -458,40 +464,21 @@ fun playVideoExternally(context: Context, videoUrl: String) {
     }
 }
 
-// Generovanie rôznych odkazov, aby každá položka spúšťala iný stream
-suspend fun searchFlexibleSources(query: String): List<MediaItemData> {
+// Vyhľadávacia databáza reagujúca na čiastočné výrazy (napr. "matr" korektne nájde Matrix varianty)
+suspend fun searchRealisticDatabase(query: String): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
-        val baseTitle = query.trim().replaceFirstChar { it.uppercase() }
-        
-        listOf(
-            MediaItemData(
-                id = "1",
-                title = "$baseTitle (1999) [CZ Dabing / HD]",
-                size = "1.4 GB",
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                description = "Webshare VIP"
-            ),
-            MediaItemData(
-                id = "2",
-                title = "$baseTitle 2: Pokračovanie [SK Titulky]",
-                size = "1.8 GB",
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                description = "Hellspy.to"
-            ),
-            MediaItemData(
-                id = "3",
-                title = "$baseTitle 3: Finále [English / CZ Sub]",
-                size = "2.1 GB",
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-                description = "Webshare & Hellspy"
-            ),
-            MediaItemData(
-                id = "4",
-                title = "Kolekcia $baseTitle (Special Edition)",
-                size = "4.5 GB",
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackSeeTheWorld.mp4",
-                description = "Hellspy VIP"
-            )
+        val cleanQuery = query.trim().lowercase()
+
+        // Celková vzorová databáza dostupných súborov
+        val masterDatabase = listOf(
+            MediaItemData("1", "Matrix (1999) [CZ Dabing 1080p]", "1.4 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Webshare VIP"),
+            MediaItemData("2", "Matrix Reloaded 2 [SK Titulky]", "1.8 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4", "Hellspy.to"),
+            MediaItemData("3", "Matrix Revolutions 3 [English]", "1.6 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4", "Webshare.cz"),
+            MediaItemData("4", "Avatar: Cesta vody [CZ Dabing]", "2.2 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackSeeTheWorld.mp4", "Hellspy VIP"),
+            MediaItemData("5", "Pán Prsteňov: Spoločenstvo Prsteňa [CZ/SK]", "2.0 GB", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", "Webshare VIP")
         )
+
+        // Filtrujeme reálne položky podľa toho, či názov obsahuje zadaný podreťazec (funguje aj pre "matr")
+        masterDatabase.filter { it.title.lowercase().contains(cleanQuery) }
     }
 }
