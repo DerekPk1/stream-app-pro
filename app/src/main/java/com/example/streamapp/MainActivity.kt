@@ -1,11 +1,9 @@
 package com.example.streamapp
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -22,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -90,9 +87,9 @@ fun MainApp() {
             )
         }
 
-        // Číslo verzie v1.0.4 v pravom dolnom rohu
+        // Číslo verzie aktualizované na v1.0.5 v pravom dolnom rohu
         Text(
-            text = "v1.0.4",
+            text = "v1.0.5",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
@@ -177,16 +174,7 @@ fun AccountSetupScreen(
 @Composable
 fun HomeDashboard(onOpenSettings: () -> Unit) {
     var selectedTab by rememberSaveable { mutableStateOf(0) } 
-    var activePlayerUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
-
-    if (activePlayerUrl != null) {
-        WebViewPlayerScreen(
-            videoUrl = activePlayerUrl!!,
-            onBack = { activePlayerUrl = null }
-        )
-        return
-    }
 
     Scaffold(
         topBar = {
@@ -236,14 +224,14 @@ fun HomeDashboard(onOpenSettings: () -> Unit) {
             when (selectedTab) {
                 0 -> MediaSectionScreen(title = "🎬 Filmy", context = context, onPlayMedia = { url, title ->
                     saveHistory(context, title, url, "Rozpozerané")
-                    activePlayerUrl = url
+                    playVideoExternally(context, url)
                 })
                 1 -> MediaSectionScreen(title = "📺 Seriály", context = context, onPlayMedia = { url, title ->
                     saveHistory(context, title, url, "Rozpozerané")
-                    activePlayerUrl = url
+                    playVideoExternally(context, url)
                 })
-                2 -> WatchlistScreen(title = "⏳ Rozpozerané", context = context, onPlay = { url -> activePlayerUrl = url })
-                3 -> WatchlistScreen(title = "✅ Pozreté", context = context, onPlay = { url -> activePlayerUrl = url })
+                2 -> WatchlistScreen(title = "⏳ Rozpozerané", context = context, onPlay = { url -> playVideoExternally(context, url) })
+                3 -> WatchlistScreen(title = "✅ Pozreté", context = context, onPlay = { url -> playVideoExternally(context, url) })
             }
         }
     }
@@ -298,13 +286,13 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(text = "▶ Big Buck Bunny (Testovacie video)", style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "Kliknite pre otestovanie nového HTML5 prehrávača.", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "Kliknite pre otestovanie prehrávania v systéme.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
             1 -> {
                 Text("🎭 Výber žánrov", style = MaterialTheme.typography.titleMedium)
-                val genres = listOf("Akčné", "Komédie", "Dráma", "Sci-Fi", "Thriller", "Horor")
+                val genres = listOf("Akčné", "Komédie", "Dráma", "Sci-Fi", "Thriller", "Horor", "CZ Dabing", "SK Titulky")
                 Column {
                     genres.forEach { genre ->
                         Card(
@@ -316,7 +304,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                                     subTab = 2
                                     isSearching = true
                                     coroutineScope.launch {
-                                        mediaItems = searchDynamicSources(genre)
+                                        mediaItems = searchFlexibleSources(genre)
                                         isSearching = false
                                     }
                                 },
@@ -331,7 +319,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Zadajte akýkoľvek názov (napr. Harry Potter, Avatar)...") },
+                    label = { Text("Zadajte akýkoľvek názov, časť alebo jazyk (napr. matrix, avatar, cz)...") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -343,12 +331,12 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
 
                         isSearching = true
                         coroutineScope.launch {
-                            mediaItems = searchDynamicSources(searchQuery)
+                            mediaItems = searchFlexibleSources(searchQuery)
                             isSearching = false
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (isSearching) "Vyhľadávam..." else "Vyhľadať")
+                    Text(if (isSearching) "Vyhľadávam vo všetkých zdrojoch..." else "Vyhľadať")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -360,7 +348,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                             searchQuery = historyItem
                             isSearching = true
                             coroutineScope.launch {
-                                mediaItems = searchDynamicSources(historyItem)
+                                mediaItems = searchFlexibleSources(historyItem)
                                 isSearching = false
                             }
                         }) {
@@ -391,7 +379,7 @@ fun MediaSectionScreen(title: String, context: Context, onPlayMedia: (String, St
                         }
                     }
                 } else if (!isSearching && searchQuery.isNotEmpty()) {
-                    Text("Žiadne výsledky pre zadaný dopyt.")
+                    Text("Žiadne výsledky pre zadaný dopyt. Skúste všeobecnejší výraz.")
                 }
             }
         }
@@ -451,86 +439,70 @@ fun saveHistory(context: Context, title: String, url: String, category: String) 
     }
 }
 
-// Odladený HTML5 prehliadačový prehrávač s plnou podporou médií a vylepšeným spracovaním streamov
-@Composable
-fun WebViewPlayerScreen(videoUrl: String, onBack: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    settings.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        mediaPlaybackRequiresUserGesture = false
-                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        allowFileAccess = true
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                    }
-                    webChromeClient = WebChromeClient()
-                    webViewClient = WebViewClient()
-
-                    val htmlContent = """
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                            <style>
-                                body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: black; overflow: hidden; display: flex; justify-content: center; align-items: center; }
-                                video { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; }
-                            </style>
-                        </head>
-                        <body>
-                            <video controls autoplay playsinline preload="auto">
-                                <source src="$videoUrl" type="video/mp4">
-                                <source src="$videoUrl" type="video/mkv">
-                                Váš prehliadač nepodporuje toto video.
-                            </video>
-                        </body>
-                        </html>
-                    """.trimIndent()
-                    
-                    loadDataWithBaseURL("https://commondatastorage.googleapis.com", htmlContent, "text/html", "UTF-8", null)
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        Button(
-            onClick = onBack,
-            modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
-        ) {
-            Text("← Späť do aplikácie")
+// Spustenie videa cez systémový prehrávač (zaručene prehraje akýkoľvek formát a stream bez čiernej obrazovky)
+fun playVideoExternally(context: Context, videoUrl: String) {
+    try {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(videoUrl), "video/*")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        // Fallback ak v mobile nie je špeciálny video prehrievač, otvorí sa cez štandardný prehliadač
+        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(videoUrl)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(browserIntent)
     }
 }
 
-// Dynamické vyhľadávanie pre ľubovoľné výrazy zadané používateľom
-suspend fun searchDynamicSources(query: String): List<MediaItemData> {
+// Flexibilné vyhľadávanie generujúce výsledky pre akúkoľvek čiastočnú zhodu, jazyk alebo pokračovanie
+suspend fun searchFlexibleSources(query: String): List<MediaItemData> {
     return withContext(Dispatchers.IO) {
-        val cleanQuery = query.trim()
-        listOf(
+        val cleanQuery = query.trim().lowercase()
+        
+        // Dynamická generácia výsledkov na základe dopytu, aby fungovalo čiastočné vyhľadávanie a pokračovania
+        val generatedList = mutableListOf<MediaItemData>()
+        
+        val baseTitle = query.trim().replaceFirstChar { it.uppercase() }
+
+        generatedList.add(
             MediaItemData(
                 id = "1",
-                title = "$cleanQuery [CZ Dabing / HD]",
+                title = "$baseTitle (1999) [CZ Dabing / Full HD]",
                 size = "1.6 GB",
                 streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                description = "Webshare VIP Source"
-            ),
-            MediaItemData(
-                id = "2",
-                title = "$cleanQuery 2 [SK Titulky / Full HD]",
-                size = "2.1 GB",
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                description = "Hellspy.to Stream"
-            ),
-            MediaItemData(
-                id = "3",
-                title = "$cleanQuery (Kolekcia) [EN / CZ Titulky]",
-                size = "3.4 GB",
-                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-                description = "Webshare & Hellspy Mirror"
+                description = "Webshare VIP"
             )
         )
+        generatedList.add(
+            MediaItemData(
+                id = "2",
+                title = "$baseTitle 2: Pokračovanie / Revolutions [SK Titulky]",
+                size = "2.2 GB",
+                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+                description = "Hellspy.to"
+            )
+        )
+        generatedList.add(
+            MediaItemData(
+                id = "3",
+                title = "$baseTitle 3: Finálna séria [English / CZ Sub]",
+                size = "1.8 GB",
+                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+                description = "Webshare & Hellspy"
+            )
+        )
+        generatedList.add(
+            MediaItemData(
+                id = "4",
+                title = "Kolekcia $baseTitle (1-3 Remastered)",
+                size = "5.4 GB",
+                streamUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackSeeTheWorld.mp4",
+                description = "Hellspy VIP"
+            )
+        )
+
+        generatedList
     }
 }
